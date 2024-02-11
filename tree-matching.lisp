@@ -3,3 +3,258 @@
         #:trivia)
   )
 (in-package #:tree-matching)
+
+;; Initially working through
+;; Flouri, Tomás and Janousek, Jan and Melichar, Bořivoj: "Subtree Matching by Pushdown Automata", 2010
+
+
+;; Tree t1 = ({a2_1, a2_2, a0_3, a1_4, a0_5, a1_6, a0_7}, R)
+;;      A = {a2, a1, a0}
+;;      R is a set of the following ordered sequence of pairs
+;;      ((a2_1, a2_2), (a2_1, a1_6)),
+;;      ((a2_2, a0_3), (a2_2, a1_4)),
+;;      ((a1_4, a0_5)),
+;;      ((a1_6, a0_7))
+;;
+;;      pref(t1) = a2 a2 a0 a1 a0 a1 a0
+;;      post(t1) = a0 a0 a1 a2 a0 a1 a2
+;;
+;;      Tree is
+;;      (a2_1
+;;        (a2_2
+;;           a0_3
+;;           (a1_4 a0_5))
+;;        (a1_6 a0_7))
+;; In the above, the suffixes are the unique node identities in the tree
+;; We have arities
+;;   a0 : 0
+;;   a1 : 1
+;;   a2 : 2
+;;
+;; This could be a haskell datatype
+;;     data Tree = A0
+;;               | A1 Tree
+;;               | A2 Tree Tree
+
+(defun t1_eg ()
+  '(a2_1
+    (a2_2
+     a0_3
+     (a1_4 a0_5))
+    (a1_6 a0_7)))
+
+;; Intuitively, a normal compiler AST is a "labelled, ordered, ranked and rooted tree"
+;; p333
+;;
+;; And I guess a "label" is then a mapping from the node in the actual
+;; AST to its type in the AST type definition.
+
+(defun prefix (tree)
+  (if (listp tree)
+      (mapcan #'prefix tree)
+      (list tree)))
+
+;;                (A2_1 A2_2 A0_3 A1_4 A0_5 A1_6 A0_7)
+;;      pref(t1) = a2   a2   a0   a1   a0   a1   a0
+
+(defun postfix (tree)
+  (if (listp tree)
+      (append (mapcan #'postfix (cdr tree)) (list (car tree)))
+      (list tree)))
+
+;;      post(t1) = a0   a0   a1   a2   a0   a1   a2
+;;                (A0_3 A0_5 A1_4 A2_2 A0_7 A1_6 A2_1)
+
+;; ---------------------------------------------------------------------
+;; p339
+;; - Algorithm 1 :: Construction of a PDA accepting a tree t in prefix notation pref(t)
+;;   Input: A tree t over a ranked alphabet A; pref(t) = a1 a2 .. an, n >= 1
+;;   Output: PDA M_p(t) = ({0,1,2 .. n}, A, {S}, δ, 0 S {n})
+;;
+;;   Method: For each state i, where 1 <= i <= n, create a new transition
+;;           δ(i-1, ai, S) = (i, S^Arity(ai)), where S^0 = ɛ.
+;; -------------------------------------
+;; Example 5 (p340)
+;; The PDA constructed by Algorithm 1, accepting the prefix notation
+;; pref(t1) = a2 a2 a0 a1 a0 a1 a0 of tree t, from Example 1, is the
+;; DPDA M_p(t1) = ({0,1,2,3,4,5,6,7}, A, {S}, δ_1, 0, S, {7}),
+;; where the mapping δ_1 is
+;;
+;;     δ1(0, a2, S) = (1, SS)
+;;     δ1(1, a2, S) = (2, SS)
+;;     δ1(2, a0, S) = (3, ɛ)
+;;     δ1(3, a1, S) = (4, S)
+;;     δ1(4, a0, S) = (5, ɛ)
+;;     δ1(5, a1, S) = (6, S)
+;;     δ1(6, a0, S) = (7, ɛ)
+;; -------------------------------------
+;; We have one more state than nodes in the prefix notation of the tree.
+
+;; ---------------------------------------------------------------------
+(defclass ranked-alphabet ()
+  (alphabet
+   arity)
+  (:documentation "The labels and arity mapping that can apply to a tree."))
+;; ---------------------------------------------------------------------
+
+(defclass pda ()
+  ((%alphabet :initarg :alphabet :accessor pda-alphabet)
+   (%states :initarg :states :accessor pda-states)
+   (%transitions :initarg :transitions :accessor pda-transitions)))
+
+(defun pretty-print-pda (pda &optional (stream t))
+  (format stream "PDA~%")
+  (format stream "PDA-alphabet:~a~%" (pda-alphabet pda))
+  (format stream "PDA-states:~a~%" (pda-states pda))
+  (format stream "PDA-transitions:~%")
+  (maphash (lambda (k v)
+             (format stream "   (~S . ~S)~%" k v))
+           (pda-transitions pda)))
+
+(defmethod add-transition ((pda pda) symbol from-node to-node)
+  (with-accessors ((alphabet pda-alphabet)
+                   (transitions pda-transitions))
+      pda
+    (let ((key (list from-node symbol :s))
+          (value (list to-node (cdr (assoc symbol alphabet)))))
+      (setf (gethash key transitions) value))))
+
+;; ---------------------------------------------------------------------
+
+(defun eg1-ranked-alphabet ()
+  '((:a0 . 0) (:a1 . 1) (:a2 . 2)))
+
+(defun algorithm-1 (ranked-alphabet prefix-tree)
+  (let ((node-num 0)
+        states)
+    (let ((transitions (make-hash-table :test 'equal)))
+      (mapc
+       (lambda (node)
+         (let ((start-node node-num))
+           (setq node-num (+ node-num 1))
+           (let ((key (list start-node node :s))
+                 (value (list node-num (cdr (assoc node ranked-alphabet)))))
+             (setf (gethash key transitions) value))))
+       prefix-tree)
+      (dotimes (state (+ node-num 1))
+        (push (list state) states))
+      (make-instance 'pda :alphabet ranked-alphabet :states states :transitions transitions))))
+
+(defun eg1-prefix-tree ()
+  (list :a2 :a2 :a0 :a1 :a0 :a1 :a0))
+
+(defun test-algorithm-1 ()
+  (let ((pda (algorithm-1 (eg1-ranked-alphabet) (eg1-prefix-tree))))
+    (pretty-print-pda pda)
+    nil))
+
+;; (((0 :A2 :S) (1 2))
+;;  ((1 :A2 :S) (2 2))
+;;  ((2 :A0 :S) (3 0))
+;;  ((3 :A1 :S) (4 1))
+;;  ((4 :A0 :S) (5 0))
+;;  ((5 :A1 :S) (6 1))
+;;  ((6 :A0 :S) (7 0)))
+
+;; ---------------------------------------------------------------------
+;; p341
+;; Algorithm 2 :: construction of a nondeterministic subtree matching
+;; pds for a tree t in prefix notation pref(t)
+;; input: a tree t over a ranked alphabet a; pref(t) = a1 a2 .. an, n >= 1
+;; output: nondeterministic subtree matching pda
+;;    m_nps(t) = ({0,1,2 .. n}, a, {s}, δ, 0 s {n})
+;;
+;; method
+;;   1. create pda m_nps(t) as pda m_p(t) by algorithm 1
+;;   2. for each symbol a ∈ a, create a new transition
+;;         δ(0, a, s) = (0, s^arity(a)), where s^0 = ɛ.
+
+(defun algorithm-2 (ranked-alphabet prefix-tree)
+  (let* ((machine (algorithm-1 ranked-alphabet prefix-tree))
+         (transitions (pda-transitions machine)))
+    (mapc (lambda (assoc-symbol)
+            (let ((symbol (car assoc-symbol)))
+              (setf (gethash (list 0 symbol :s) transitions)
+                    (list 0 (cdr (assoc symbol ranked-alphabet))))))
+          ranked-alphabet)
+    (setf (pda-transitions machine) transitions)
+    machine))
+
+(defun test-algorithm-2 ()
+  (let ((machine (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
+    (pretty-print-pda machine)
+    nil))
+
+;; ---------------------------------------------------------------------
+;; p 343
+;;
+;; - Algorithm 3 :: transformation of an input-driven nondeterministic
+;;   PDA to an equivalent deterministic PDA
+;;
+;;   Input: Input-driven nondeterministic PDA
+;;      M_nx(t) = ({0,1,2 .. n}, A, {S}, δ, 0 S {n})
+;;   Output: equivalent  deterministic PDA
+;;      M_dx(t) = (Q', A, {S}, δ', q1 S F')
+;;
+;;   Method
+;;     1. Initially, Q' = {{0}}, q1 = {0} and {0} is an unmarked state
+;;     2.(a) Select an unmarked state q' from Q'
+;;       (b) For each symbol a ∈ A:
+;;          i. q'' = {q | δ(p,a,α) = (q,β) for all p ∈ q' }
+;;          ii. Add transition δ'(q', a, S) = (q'', S^Arity(a))
+;;          iii. If q'' not ∈ Q then add q'' to Q and set is as unmarked state
+;;       (c) Set state q' as marked
+;;     3. Repeat step 2 until all states in Q' are marked.
+;;     4. F' = { q' | q' ∈ Q' and q' intersect F /= {} }
+
+(defun algorithm-3 (pda-n)
+  (let* ((big-q (pda-states pda-n))
+         (big-q-prime (list (list 0)))
+         (unmarked big-q-prime)
+         (q1 (list 0)))
+    (format t "alg3:big-q ~a~%" big-q)
+    (loop while (not (null unmarked))
+          do
+             (progn
+               (let ((q-prime (car unmarked)))
+                 (setf unmarked (cdr unmarked))
+                 (format t "alg3:unmarked ~a~%" unmarked)
+                 (format t "alg3:q-prime ~a~%" q-prime)
+                 (format t "alg3:transitions ~a~%" (pda-transitions pda-n))
+                 (dolist (symbol (pda-alphabet pda-n))
+                   ;; In section 2(b) here
+                   (format t "alg3:symbol ~a~%" symbol)
+                   ;; 2(b)i. q'' = {q | δ(p,a,α) = (q,β) for all p ∈ q' }
+                   (let ((q-prime2 nil))
+                     (maphash (lambda (k v)
+                                (if (eq (car symbol) (cadr k))
+                                    (format t " ~S,~S~%" k v)
+                                    (let ((q (car v)))
+                                      (if (member q q-prime)
+                                          (pushnew (car v) q-prime2)))))
+                              (pda-transitions pda-n))
+                     (format t "q-prime2: ~a~%" q-prime2)
+                     ;; 2(b)ii. Add transition δ'(q', a, S) = (q'', S^Arity(a))
+                     (add-transition pda-n (car symbol) q-prime q-prime2)
+                     ;;  2(b)iii. If q'' not ∈ Q then add q'' to Q and set is as unmarked state
+                     ;; Note: must be Q' above, else does not make sense.
+                     (format t "alg3:big-q-prime ~a~%" big-q-prime)
+                     (format t "alg3:q-prime2 ~a~%" q-prime2)
+                     (if (not (member q-prime2 big-q-prime :test 'equal))
+                         (progn
+                           (format t "oh shit~%")
+                           (push q-prime2 big-q-prime)
+                           (push q-prime2 unmarked)
+                           (break)
+                           )
+                           (format t "ok~%")
+                         )
+                     ))))
+             ;; (break)
+          )
+    (format t "alg3:big-q-prime ~a~%" big-q-prime)
+    ))
+
+(defun test-algorithm-3 ()
+  (let ((pda-n (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
+    (algorithm-3 pda-n)))
