@@ -99,8 +99,8 @@
 
 (defclass pda ()
   ((%alphabet :initarg :alphabet :accessor pda-alphabet)
-   (%states :initarg :states :accessor pda-states)
-   (%transitions :initarg :transitions :accessor pda-transitions)))
+   (%states :initarg :states :initform '() :accessor pda-states)
+   (%transitions :initarg :transitions  :initform (make-hash-table :test 'equal)  :accessor pda-transitions)))
 
 (defun pretty-print-pda (pda &optional (stream t))
   (format stream "PDA~%")
@@ -111,6 +111,9 @@
              (format stream "   (~S . ~S)~%" k v))
            (pda-transitions pda)))
 
+(defun new-pda (alphabet)
+  (make-instance 'pda :alphabet alphabet))
+
 (defmethod add-transition ((pda pda) symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (transitions pda-transitions))
@@ -118,6 +121,11 @@
     (let ((key (list from-node symbol :s))
           (value (list to-node (cdr (assoc symbol alphabet)))))
       (setf (gethash key transitions) value))))
+
+(defmethod get-transition ((pda pda) key)
+  (with-accessors ((transitions pda-transitions))
+      pda
+      (gethash key transitions)))
 
 ;; ---------------------------------------------------------------------
 
@@ -137,7 +145,8 @@
              (setf (gethash key transitions) value))))
        prefix-tree)
       (dotimes (state (+ node-num 1))
-        (push (list state) states))
+        ;; (push (list state) states))
+        (push state states))
       (make-instance 'pda :alphabet ranked-alphabet :states states :transitions transitions))))
 
 (defun eg1-prefix-tree ()
@@ -256,5 +265,63 @@
     ))
 
 (defun test-algorithm-3 ()
+  (let ((pda-n (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
+    (algorithm-3 pda-n)))
+
+;; ---------------------------------------------------------------------
+;; p347
+
+;; - Algorithm 4 :: Construction of a PDA accepting a set of trees
+;;    P = {t1, t2, t3, ..., tm} in their prefix notation.
+;;
+;;   Input: A set of trees P = {t1, t2, t3, ..., tm} over a ranke alphabet A;
+;;     prefix notation pref(ti) = a1 a2 .. an, 1 <= i <= m, ni >= 1.
+;;   Output: PDA M_p(P) = ({0,1,2,...,q),A,{S}, δ, 0, S, F).
+;;   Method:
+;;    1. Let q <- 0 an F <- {}
+;;    2. For each tree ti = a1_i a2_i, .. a|ti|_i, 1 <= i <= m do
+;;       (a) Let l <- 0
+;;       (b) For j = 1 to |ti| do
+;;           i. If the transition δ(l, aj_i, S) is not defined then
+;;              A. Let q <- q + 1
+;;              B. Create a transition δ(l, aj_i, S) <- (q, S^Arity(aj_i))
+;;              C. Let l <- q
+;;           ii. Else if transition δ(l, aj_i, S) is defined
+;;               A. l <- p where (p, γ) <- δ(l, aj, S)
+;;       (c) F <- F union {l}
+
+
+(defun algorithm-4 (alphabet trees)
+  ;; 1. Let q <- 0 an F <- {}
+  (let ((q 0)
+        (big-f '())
+        (pda (new-pda alphabet)))
+    ;; 2. For each tree ti = a1_i a2_i, .. a|ti|_i, 1 <= i <= m do
+    (dolist (tree trees)
+      ;; 2(a) Let l <- 0
+      (let ((l 0))
+        ;; 2(b) For j = 1 to |ti| do
+        (dolist (symbol tree)
+          ;; 2(b)i. If the transition δ(l, aj_i, S) is not defined then
+          (let ((to (get-transition pda (list l symbol :s))))
+            (cond
+              ((null to)
+               (progn
+                 ;; A. Let q <- q + 1
+                 (setf q (+ q 1))
+                 ;; B. Create a transition δ(l, aj_i, S) <- (q, S^Arity(aj_i))
+                 ;; C. Let l <- q
+                 (add-transition pda symbol l q)
+                 (setf l q)
+                 ))
+              (t
+               ;; 2(b)ii. Else if transition δ(l, aj_i, S) is defined
+               ;;  A. l <- p where (p, γ) <- δ(l, aj, S)
+               (setf l (car to))))))
+        ;; 2(c) F <- F union {l}
+        (pushnew (list l) big-f)))))
+
+;; TODO: add-transition should add the states too.
+(defun test-algorithm-4 ()
   (let ((pda-n (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
     (algorithm-3 pda-n)))
