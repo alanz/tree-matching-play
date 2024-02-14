@@ -100,12 +100,17 @@
 (defclass pda ()
   ((%alphabet :initarg :alphabet :accessor pda-alphabet)
    (%states :initarg :states :initform '() :accessor pda-states)
-   (%transitions :initarg :transitions  :initform (make-hash-table :test 'equal)  :accessor pda-transitions)))
+   (%initial-state :initarg :initial :initform nil :accessor pda-initial-state)
+   (%final-states :initarg :final :initform nil :accessor pda-final-states)
+   (%transitions :initarg :transitions  :initform (make-hash-table :test 'equal)
+                 :accessor pda-transitions)))
 
 (defun pretty-print-pda (pda &optional (stream t))
   (format stream "PDA~%")
   (format stream "PDA-alphabet:~a~%" (pda-alphabet pda))
-  (format stream "PDA-states:~a~%" (pda-states pda))
+  (format stream "PDA-states:~a~%" (reverse (pda-states pda)))
+  (format stream "PDA-initial-state:~a~%" (pda-initial-state pda))
+  (format stream "PDA-final-states:~a~%" (reverse (pda-final-states pda)))
   (format stream "PDA-transitions:~%")
   (maphash (lambda (k v)
              (format stream "   (~S . ~S)~%" k v))
@@ -116,8 +121,11 @@
 
 (defmethod add-transition ((pda pda) symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
+                   (states pda-states)
                    (transitions pda-transitions))
       pda
+    (pushnew from-node states)
+    (pushnew to-node states)
     (let ((key (list from-node symbol :s))
           (value (list to-node (cdr (assoc symbol alphabet)))))
       (setf (gethash key transitions) value))))
@@ -292,6 +300,8 @@
 
 
 (defun algorithm-4 (alphabet trees)
+  (format t "alphabet: ~a~%" alphabet)
+  (format t "trees:~a~%" trees)
   ;; 1. Let q <- 0 an F <- {}
   (let ((q 0)
         (big-f '())
@@ -319,9 +329,28 @@
                ;;  A. l <- p where (p, γ) <- δ(l, aj, S)
                (setf l (car to))))))
         ;; 2(c) F <- F union {l}
-        (pushnew (list l) big-f)))))
+        (pushnew l big-f)))
+    (setf (pda-initial-state pda) 0)
+    (setf (pda-final-states pda) big-f)
+    pda))
+
+
+   ;; pref(t1) = a2 a2 a0 a0 b0,
+   ;; pref(t2) = a2 b1 a0 a0 and
+   ;; pref(t3) = a2 a0 a0.
+(defun eg8-prefix-tree-1 ()
+  (list :a2 :a2 :a0 :a0 :b0))
+
+(defun eg8-prefix-tree-2 ()
+  (list :a2 :b1 :a0 :a0))
+
+(defun eg8-prefix-tree-3 ()
+  (list :a2 :a0 :a0))
 
 ;; TODO: add-transition should add the states too.
 (defun test-algorithm-4 ()
-  (let ((pda-n (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
-    (algorithm-3 pda-n)))
+  (let ((pda-p (algorithm-4 (eg1-ranked-alphabet)
+                            (list (eg8-prefix-tree-1)
+                                  (eg8-prefix-tree-2)
+                                  (eg8-prefix-tree-3)))))
+    (pretty-print-pda pda-p)))
