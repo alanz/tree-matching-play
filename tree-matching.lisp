@@ -335,6 +335,10 @@
     pda))
 
 
+(defun eg8-ranked-alphabet ()
+  '((:a0 . 0) (:a1 . 1) (:a2 . 2)
+    (:b0 . 0) (:b1 . 1) ))
+
    ;; pref(t1) = a2 a2 a0 a0 b0,
    ;; pref(t2) = a2 b1 a0 a0 and
    ;; pref(t3) = a2 a0 a0.
@@ -347,9 +351,33 @@
 (defun eg8-prefix-tree-3 ()
   (list :a2 :a0 :a0))
 
-;; TODO: add-transition should add the states too.
 (defun test-algorithm-4 ()
-  (let ((pda-p (algorithm-4 (eg1-ranked-alphabet)
+  (let ((pda-p (algorithm-4 (eg8-ranked-alphabet)
+                            (list (eg8-prefix-tree-1)
+                                  (eg8-prefix-tree-2)
+                                  (eg8-prefix-tree-3)))))
+    (pretty-print-pda pda-p)))
+
+;; ---------------------------------------------------------------------
+;; p350
+
+;; - Algorithm 5 :: Construction of a nondeterministic subtree matching PDA for a
+;;   set of trees P = {t1, t2, t3, ..., tm} in their prefix notation
+;;   Input: A tree t over a ranked alphabet A; prefix notation pref(t = a11 a2 .. an, n >= 1
+;;   Output: Nondeterministic subtree matching PDA M_nps(t) = (Q,A,{S},δ,0,S,F).
+;;   Method:
+;;     1. Create PDA_nps(t) as PDA M_p(t) = (Q,A,{S},δ,0,S,F) by Algorithm 4.
+;;     2. For each symbol a ∈ A create a new transition δ(0,a,S) = (0,S^Arity(a)),
+;;        where S^0 = ε.
+
+(defun algorithm-5 (alphabet trees)
+  (let ((pda-n (algorithm-4 alphabet trees)))
+    (dolist (symbol (pda-alphabet pda-n))
+      (add-transition pda-n (car symbol) 0 0))
+    pda-n))
+
+(defun test-algorithm-5 ()
+  (let ((pda-p (algorithm-5 (eg8-ranked-alphabet)
                             (list (eg8-prefix-tree-1)
                                   (eg8-prefix-tree-2)
                                   (eg8-prefix-tree-3)))))
