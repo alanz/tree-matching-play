@@ -105,6 +105,10 @@
    (%transitions :initarg :transitions  :initform (make-hash-table :test 'equal)
                  :accessor pda-transitions)))
 
+(defclass pda-n (pda)
+  ()
+  (:documentation "Version of PDA allowing nondeterministic transitions"))
+
 (defun pretty-print-pda (pda &optional (stream t))
   (format stream "PDA~%")
   (format stream "PDA-alphabet:~a~%" (pda-alphabet pda))
@@ -119,6 +123,10 @@
 (defun new-pda (alphabet)
   (make-instance 'pda :alphabet alphabet))
 
+(defun new-pda-n (alphabet)
+  (make-instance 'pda-n :alphabet alphabet))
+
+;; ---------------------------------------------------------------------
 (defmethod add-transition ((pda pda) symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
@@ -129,6 +137,22 @@
     (let ((key (list from-node symbol :s))
           (value (list to-node (cdr (assoc symbol alphabet)))))
       (setf (gethash key transitions) value))))
+
+;; Add a transition to a non-deterministic pda
+(defmethod add-transition ((pda pda-n) symbol from-node to-node)
+  (format t "pda-n:add-transition ~a:~a->~a~%" symbol from-node to-node)
+  (with-accessors ((alphabet pda-alphabet)
+                   (states pda-states)
+                   (transitions pda-transitions))
+      pda
+    (pushnew from-node states)
+    (pushnew to-node states)
+    (let ((key (list from-node symbol :s))
+          (new-dest (list to-node (cdr (assoc symbol alphabet)))))
+      (setf (gethash key transitions)
+            (pushnew new-dest (gethash key transitions))))))
+
+;; ---------------------------------------------------------------------
 
 (defmethod get-transition ((pda pda) key)
   (with-accessors ((transitions pda-transitions))
@@ -153,7 +177,6 @@
              (setf (gethash key transitions) value))))
        prefix-tree)
       (dotimes (state (+ node-num 1))
-        ;; (push (list state) states))
         (push state states))
       (make-instance 'pda :alphabet ranked-alphabet :states states :transitions transitions))))
 
@@ -228,7 +251,8 @@
   (let* ((big-q (pda-states pda-n))
          (big-q-prime (list (list 0)))
          (unmarked big-q-prime)
-         (q1 (list 0)))
+         ;; (q1 0)
+         )
     (format t "alg3:big-q ~a~%" big-q)
     (loop while (not (null unmarked))
           do
@@ -299,13 +323,15 @@
 ;;       (c) F <- F union {l}
 
 
-(defun algorithm-4 (alphabet trees)
+(defun algorithm-4 (pda alphabet trees)
   (format t "alphabet: ~a~%" alphabet)
   (format t "trees:~a~%" trees)
+  (setf (pda-alphabet pda) alphabet)
   ;; 1. Let q <- 0 an F <- {}
   (let ((q 0)
         (big-f '())
-        (pda (new-pda alphabet)))
+        ;; (pda (new-pda alphabet))
+        )
     ;; 2. For each tree ti = a1_i a2_i, .. a|ti|_i, 1 <= i <= m do
     (dolist (tree trees)
       ;; 2(a) Let l <- 0
@@ -352,7 +378,8 @@
   (list :a2 :a0 :a0))
 
 (defun test-algorithm-4 ()
-  (let ((pda-p (algorithm-4 (eg8-ranked-alphabet)
+  (let ((pda-p (algorithm-4 (new-pda (eg8-ranked-alphabet))
+                            (eg8-ranked-alphabet)
                             (list (eg8-prefix-tree-1)
                                   (eg8-prefix-tree-2)
                                   (eg8-prefix-tree-3)))))
@@ -371,7 +398,7 @@
 ;;        where S^0 = ε.
 
 (defun algorithm-5 (alphabet trees)
-  (let ((pda-n (algorithm-4 alphabet trees)))
+  (let ((pda-n (algorithm-4 (new-pda-n alphabet) alphabet trees)))
     (dolist (symbol (pda-alphabet pda-n))
       (add-transition pda-n (car symbol) 0 0))
     pda-n))
