@@ -300,8 +300,6 @@ Note: This like does the reverse too."
 ;;     4. F' = { q' | q' ∈ Q' and q' intersect F /= {} }
 
 (defun algorithm-3 (pda-n)
-  (format t "algorithm-3:~a~%" pda-n)
-  (pretty-print-pda pda-n)
   ;; 1. Initially, Q' = {{0}}, q1 = {0} and {0} is an unmarked state
   (let* (;; (big-q (pda-states pda-n))
          (big-q-prime (list (list 0)))
@@ -542,6 +540,8 @@ Note: This like does the reverse too."
 
 (defmethod transition ((run pda-run) symbol)
   (format t "transition: ~a~%" symbol)
+  ;; Look up transition for current state and symbol.
+  ;; Perhaps re-jigger transition storage to match this
   )
 
 ;; ---------------------------------------------------------------------
@@ -575,6 +575,6 @@ Note: This like does the reverse too."
                        (eg8-prefix-tree-2)
                        (eg8-prefix-tree-3))))
          (runner (make-instance 'pda-run :pda pda-d :state (list 0) :stack 1)))
-        (transition runner :a2)
-         ))
+    (pretty-print-pda pda-d)
+    (transition runner :a2)))
 
