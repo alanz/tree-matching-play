@@ -121,7 +121,6 @@
            (pda-transitions pda)))
 
 (defun new-pda (alphabet)
-  (format t "new-pda: ~a~%" alphabet)
   (make-instance 'pda :alphabet alphabet))
 
 (defun new-pda-n (alphabet)
@@ -130,7 +129,6 @@
 ;; ---------------------------------------------------------------------
 
 (defmethod add-transition ((pda pda) symbol from-node to-node match-arity &optional push-arity)
-  (format t "pda-d:add-transition ~a:~a->~a~%" symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -145,14 +143,12 @@
 
 ;; Add a transition to a non-deterministic pda
 (defmethod add-transition ((pda pda-n) symbol from-node to-node match-arity &optional push-arity)
-  (format t "pda-n:add-transition ~a:~a->~a~%" symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
       pda
     (pushnew from-node states :test 'equal)
     (pushnew to-node states :test 'equal)
-    (format t "hello~%")
     (let ((key (list from-node symbol match-arity))
           (new-dest (if push-arity
                         (list to-node push-arity)
@@ -164,7 +160,6 @@
 
 ;; All transitions from a deterministic pda
 (defmethod all-transitions ((pda pda))
-  (format t "pda-d:all-transitions~%")
   (with-accessors ((transitions pda-transitions))
       pda
     (let (res)
@@ -174,7 +169,6 @@
 
 ;; All transitions from a non-deterministic pda
 (defmethod all-transitions ((pda pda-n))
-  (format t "pda-n:all-transitions~%")
   (with-accessors ((transitions pda-transitions))
       pda
     (let (res)
@@ -315,19 +309,14 @@ Note: This like does the reverse too."
          (pda-d (new-pda (pda-alphabet pda-n)))
          ;; (q1 0)
          )
-    (format t "alg3:big-q-prime ~a~%" big-q-prime)
     ;; 2.(a) Select an unmarked state q' from Q'
     (loop while (not (null unmarked))
           do
              (progn
                (let ((q-prime (car unmarked)))
                  (setf unmarked (cdr unmarked))
-                 (format t "alg3:unmarked ~a~%" unmarked)
-                 (format t "alg3:-------------------------~%")
-                 (format t "alg3:q-prime ~a~%" q-prime)
                  (dolist (symbol (pda-alphabet pda-n))
                    ;; 2.(b) For each symbol a ∈ A:
-                   (format t "alg3:symbol ~a~%" symbol)
                    ;; 2(b)i. q'' = {q | δ(p,a,α) = (q,β) for all p ∈ q' }
                    (let ((q-prime2 nil))
                      (mapc (lambda (transition)
@@ -335,34 +324,22 @@ Note: This like does the reverse too."
                                     (v (cadr transition))
                                     (p (car k))
                                     (q (car v)))
-                               (format t "alg3:k,v: ~S,~S~%" k v)
-                               (format t "alg3:p,q: ~S,~S~%" p q)
-                               (format t "alg3:(car symbol): ~S~%" (car symbol))
-                               (format t "alg3:(cadr k): ~S~%" (cadr k))
                                (if (eq (car symbol) (cadr k))
                                    (progn
-                                     (format t "alg3:match~%")
-                                     (format t "alg3:q: ~S~%" q)
                                      (if (member p q-prime :test 'equal)
                                          (pushnew q q-prime2 :test 'equal))))))
                            (all-transitions pda-n))
-                     (format t "alg3:q-prime2: ~a~%" q-prime2)
                      ;; 2(b)ii. Add transition δ'(q', a, S) = (q'', S^Arity(a))
                      (add-transition pda-d (car symbol) q-prime q-prime2 1)
                      ;; 2(b)iii. If q'' not ∈ Q then add q'' to Q and set is as unmarked state
                      ;; Note: must be Q' above, else does not make sense.
-                     (format t "alg3:big-q-prime ~a~%" big-q-prime)
-                     (format t "alg3:q-prime2 ~a~%" q-prime2)
                      (if (not (member q-prime2 big-q-prime :test 'equal))
                          (progn
-                           ;; (format t "oh shit~%")
                            (push q-prime2 big-q-prime)
-                           (push q-prime2 unmarked)
-                           (format t "ok~%")))
+                           (push q-prime2 unmarked)))
                      ))))
              ;; (break)
           )
-    (format t "alg3:big-q-prime ~a~%" big-q-prime)
     ;; (setf (pda-final-states pda-d)
     pda-d))
 
