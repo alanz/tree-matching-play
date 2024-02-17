@@ -576,17 +576,15 @@ Note: This like does the reverse too."
          (push-arity (caddr value))
          (stack (run-pda-stack run)))
     (format t "transition:state, value ~a, ~a~%" state value)
-    (format t "transition:stack, match-arity ~a, ~a~%" stack match-arity push-arity)
+    (format t "transition:stack, match-arity, push-arity ~a, ~a, ~a~%" stack match-arity push-arity)
     ;; Check for valid stack match. In our degenerate case this is just a numeric check
     (if (>= stack match-arity)
         (progn
           ;; We're valid, pop match-arity and push push-arity, then change state
           (let ((new-stack (+ (- stack match-arity) push-arity)))
             (format t"transition:new-stack ~a~%" new-stack)
-            (format t"transition:new-state ~a~%" to-state)
-            )
-            ))
-        (format t"transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity)
+            (format t"transition:new-state ~a~%" to-state)))
+        (format t"transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity))
     )
   )
 
