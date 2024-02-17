@@ -128,6 +128,15 @@
 
 ;; ---------------------------------------------------------------------
 
+;; Store the transition ready for use.
+;; So a hashmap,
+;;   key   is (list state symbol)
+;;   value is (list match-arity to-state push-arity)
+(defun make-transition-k-v (from-node symbol match-arity to-node push-arity)
+    (let ((key (list from-node symbol))
+          (value (list match-arity to-node push-arity)))
+      (values key value)))
+
 (defmethod add-transition ((pda pda) symbol from-node to-node match-arity &optional push-arity)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
@@ -535,13 +544,50 @@ Note: This like does the reverse too."
 
 (defclass pda-run ()
   ((%pda :initarg :pda :accessor run-pda-pda)
+   (%transitions :initform nil :accessor run-pda-transitions)
    (%state :initarg :state :accessor run-pda-state)
    (%stack :initarg :stack :initform (list 1) :accessor run-pda-stack)))
 
+(defmethod initialize-instance :after ((run pda-run) &key)
+  "Create a cache of transitions, in a form ready for quick use."
+  (let ((transitions (make-hash-table :test 'equal))
+        (pda-transitions (all-transitions (run-pda-pda run))))
+    (dolist (transition pda-transitions)
+      ;; e.g. ( ((7 0) B1 1) ((0) 1))
+      (format t "pda-run:initialize-instance: ~a~%" transition)
+      (let* ((key (car transition))
+             (value (cadr transition))
+             (from-state (car key))
+             (from-symbol (cadr key))
+             (match-arity (caddr key))
+             (to-state (car value))
+             (push-arity (cadr value))
+             (cache-key (list from-state from-symbol))
+             (cache-value (list match-arity to-state push-arity)))
+        (setf (gethash cache-key transitions) cache-value)))
+    (setf (run-pda-transitions run) transitions)))
+
 (defmethod transition ((run pda-run) symbol)
   (format t "transition: ~a~%" symbol)
-  ;; Look up transition for current state and symbol.
-  ;; Perhaps re-jigger transition storage to match this
+  (let* ((state (run-pda-state run))
+         (value (gethash (list state symbol) (run-pda-transitions run)))
+         (match-arity (car value))
+         (to-state (cadr value))
+         (push-arity (caddr value))
+         (stack (run-pda-stack run)))
+    (format t "transition:state, value ~a, ~a~%" state value)
+    (format t "transition:stack, match-arity ~a, ~a~%" stack match-arity push-arity)
+    ;; Check for valid stack match. In our degenerate case this is just a numeric check
+    (if (>= stack match-arity)
+        (progn
+          ;; We're valid, pop match-arity and push push-arity, then change state
+          (let ((new-stack (+ (- stack match-arity) push-arity)))
+            (format t"transition:new-stack ~a~%" new-stack)
+            (format t"transition:new-state ~a~%" to-state)
+            )
+            ))
+        (format t"transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity)
+    )
   )
 
 ;; ---------------------------------------------------------------------
@@ -578,3 +624,4 @@ Note: This like does the reverse too."
     (pretty-print-pda pda-d)
     (transition runner :a2)))
 
+;; Problem: transition from (0) :a2 should go to (0 1).
