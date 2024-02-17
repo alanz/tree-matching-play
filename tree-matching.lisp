@@ -129,7 +129,7 @@
 
 ;; ---------------------------------------------------------------------
 
-(defmethod add-transition ((pda pda) symbol from-node to-node)
+(defmethod add-transition ((pda pda) symbol from-node to-node match-arity &optional push-arity)
   (format t "pda-d:add-transition ~a:~a->~a~%" symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
@@ -137,12 +137,14 @@
       pda
     (pushnew from-node states :test 'equal)
     (pushnew to-node states :test 'equal)
-    (let ((key (list from-node symbol :s))
-          (value (list to-node (cdr (assoc symbol alphabet)))))
+    (let ((key (list from-node symbol match-arity))
+          (value (if push-arity
+                     (list to-node push-arity)
+                     (list to-node (cdr (assoc symbol alphabet))))))
       (setf (gethash key transitions) value))))
 
 ;; Add a transition to a non-deterministic pda
-(defmethod add-transition ((pda pda-n) symbol from-node to-node)
+(defmethod add-transition ((pda pda-n) symbol from-node to-node match-arity &optional push-arity)
   (format t "pda-n:add-transition ~a:~a->~a~%" symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
@@ -150,8 +152,11 @@
       pda
     (pushnew from-node states :test 'equal)
     (pushnew to-node states :test 'equal)
-    (let ((key (list from-node symbol :s))
-          (new-dest (list to-node (cdr (assoc symbol alphabet)))))
+    (format t "hello~%")
+    (let ((key (list from-node symbol match-arity))
+          (new-dest (if push-arity
+                        (list to-node push-arity)
+                        (list to-node (cdr (assoc symbol alphabet))))))
       (setf (gethash key transitions)
             (pushnew new-dest (gethash key transitions) :test 'equal)))))
 
@@ -189,6 +194,40 @@
 
 ;; ---------------------------------------------------------------------
 
+;; - Alg 1 - 5 in Postfix :: From the above Theorems, we can easily
+;;   transform Algorithms 1-5 to work with the postfix notation of trees.
+;;   The only change required is in the pushdown operations.
+;;   - All transitions of the form δ(q, a, S)           = (p, S^Arity(ai))
+;;     must be changed to the form δ(q, a, S^Arity(ai)) = (p, S).
+;;   - The subtree matching PDA also requires no initial pushdown store symbol,
+;;     while after processing a valid tree in postfix notation, the pushdown store
+;;     contains a single symbol ’S’.
+
+(defmethod convert-to-postfix ((pda pda))
+  "Convert a prefix string matcher to a postfix one.
+Does so by swapping the arities in the source and dest of transitions.
+Note: This like does the reverse too."
+  (let ((transitions (all-transitions pda)))
+    ;; Clear out existing transitions
+    (setf (pda-transitions pda) (make-hash-table :test 'equal))
+    (mapc (lambda (transition)
+            (let* ((from (car transition))
+                   (to (cadr transition))
+                   (from-node (car from))
+                   (from-symbol (cadr from))
+                   (from-arity (caddr from))
+                   (to-node (car to))
+                   (to-arity (cadr to)))
+            (format t "ctp:~a~%" transition)
+            (format t "ctp:(from,to) ~a, ~a~%" from to)
+            (format t "ctp:(from,to) node:~a arity:~a,  node:~a arity:~a~%" from-node from-arity to-node to-arity)
+            (add-transition pda from-symbol from-node to-node from-arity to-arity)
+            ))
+          transitions)
+    pda))
+
+;; ---------------------------------------------------------------------
+
 (defun eg1-ranked-alphabet ()
   '((:a0 . 0) (:a1 . 1) (:a2 . 2)))
 
@@ -199,7 +238,7 @@
      (lambda (symbol)
        (let ((start-node node-num))
          (setq node-num (+ node-num 1))
-         (add-transition pda symbol start-node node-num)))
+         (add-transition pda symbol start-node node-num 1)))
      prefix-tree)
     pda))
 
@@ -235,7 +274,7 @@
 (defun algorithm-2 (ranked-alphabet prefix-tree)
   (let* ((pda-n (algorithm-1 ranked-alphabet prefix-tree)))
     (mapc (lambda (assoc-symbol)
-            (add-transition pda-n (car assoc-symbol) 0 0))
+            (add-transition pda-n (car assoc-symbol) 0 0 1))
           ranked-alphabet)
     pda-n))
 
@@ -309,7 +348,7 @@
                            (all-transitions pda-n))
                      (format t "alg3:q-prime2: ~a~%" q-prime2)
                      ;; 2(b)ii. Add transition δ'(q', a, S) = (q'', S^Arity(a))
-                     (add-transition pda-d (car symbol) q-prime q-prime2)
+                     (add-transition pda-d (car symbol) q-prime q-prime2 1)
                      ;; 2(b)iii. If q'' not ∈ Q then add q'' to Q and set is as unmarked state
                      ;; Note: must be Q' above, else does not make sense.
                      (format t "alg3:big-q-prime ~a~%" big-q-prime)
@@ -404,7 +443,7 @@
                  (setf q (+ q 1))
                  ;; B. Create a transition δ(l, aj_i, S) <- (q, S^Arity(aj_i))
                  ;; C. Let l <- q
-                 (add-transition pda symbol l q)
+                 (add-transition pda symbol l q 1)
                  (setf l q)
                  ))
               (t
@@ -457,7 +496,7 @@
 (defun algorithm-5 (alphabet trees)
   (let ((pda-n (algorithm-4 (new-pda-n alphabet) alphabet trees)))
     (dolist (symbol (pda-alphabet pda-n))
-      (add-transition pda-n (car symbol) 0 0))
+      (add-transition pda-n (car symbol) 0 0 1))
     pda-n))
 
 (defun test-algorithm-5 ()
@@ -485,9 +524,32 @@
     pda-d))
 
 (defun test-algorithm-5-deterministic ()
-  (let* ((pda-n (algorithm-5-deterministic
+  (let* ((pda-d (algorithm-5-deterministic
                  (eg8-ranked-alphabet)
                  (list (eg8-prefix-tree-1)
                        (eg8-prefix-tree-2)
                        (eg8-prefix-tree-3)))))
-    (pretty-print-pda pda-n)))
+    (pretty-print-pda pda-d)))
+
+;; ---------------------------------------------------------------------
+;; Postfix matching
+;; p 354
+;;
+;; - Alg 1 - 5 in Postfix :: From the above Theorems, we can easily
+;;   transform Algorithms 1-5 to work with the postfix notation of trees.
+;;   The only change required is in the pushdown operations.
+;;   - All transitions of the form δ(q, a, S)           = (p, S^Arity(ai))
+;;     must be changed to the form δ(q, a, S^Arity(ai)) = (p, S).
+;;   - The subtree matching PDA also requires no initial pushdown store symbol,
+;;     while after processing a valid tree in postfix notation, the pushdown store
+;;     contains a single symbol ’S’.
+
+(defun test-convert-to-postfix ()
+  (let* ((pda-d (algorithm-5-deterministic
+                 (eg8-ranked-alphabet)
+                 (list (eg8-prefix-tree-1)
+                       (eg8-prefix-tree-2)
+                       (eg8-prefix-tree-3))))
+         (pda-post (convert-to-postfix pda-d)))
+    (pretty-print-pda pda-d)
+    (pretty-print-pda pda-post)))
