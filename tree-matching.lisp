@@ -135,8 +135,8 @@
                    (states pda-states)
                    (transitions pda-transitions))
       pda
-    (pushnew from-node states)
-    (pushnew to-node states)
+    (pushnew from-node states :test 'equal)
+    (pushnew to-node states :test 'equal)
     (let ((key (list from-node symbol :s))
           (value (list to-node (cdr (assoc symbol alphabet)))))
       (setf (gethash key transitions) value))))
@@ -148,12 +148,12 @@
                    (states pda-states)
                    (transitions pda-transitions))
       pda
-    (pushnew from-node states)
-    (pushnew to-node states)
+    (pushnew from-node states :test 'equal)
+    (pushnew to-node states :test 'equal)
     (let ((key (list from-node symbol :s))
           (new-dest (list to-node (cdr (assoc symbol alphabet)))))
       (setf (gethash key transitions)
-            (pushnew new-dest (gethash key transitions))))))
+            (pushnew new-dest (gethash key transitions) :test 'equal)))))
 
 ;; ---------------------------------------------------------------------
 
@@ -305,7 +305,7 @@
                                      (format t "alg3:match~%")
                                      (format t "alg3:q: ~S~%" q)
                                      (if (member p q-prime :test 'equal)
-                                         (pushnew q q-prime2))))))
+                                         (pushnew q q-prime2 :test 'equal))))))
                            (all-transitions pda-n))
                      (format t "alg3:q-prime2: ~a~%" q-prime2)
                      ;; 2(b)ii. Add transition δ'(q', a, S) = (q'', S^Arity(a))
@@ -412,7 +412,7 @@
                ;;  A. l <- p where (p, γ) <- δ(l, aj, S)
                (setf l (car to))))))
         ;; 2(c) F <- F union {l}
-        (pushnew l big-f)))
+        (pushnew l big-f :test 'equal)))
     (setf (pda-initial-state pda) 0)
     (setf (pda-final-states pda) big-f)
     pda))
@@ -489,5 +489,5 @@
                  (eg8-ranked-alphabet)
                  (list (eg8-prefix-tree-1)
                        (eg8-prefix-tree-2)
-                       (eg8-prefix-tree-3))))
-    (pretty-print-pda pda-d))))
+                       (eg8-prefix-tree-3)))))
+    (pretty-print-pda pda-n)))
