@@ -121,13 +121,16 @@
            (pda-transitions pda)))
 
 (defun new-pda (alphabet)
+  (format t "new-pda: ~a~%" alphabet)
   (make-instance 'pda :alphabet alphabet))
 
 (defun new-pda-n (alphabet)
   (make-instance 'pda-n :alphabet alphabet))
 
 ;; ---------------------------------------------------------------------
+
 (defmethod add-transition ((pda pda) symbol from-node to-node)
+  (format t "pda-d:add-transition ~a:~a->~a~%" symbol from-node to-node)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -154,6 +157,31 @@
 
 ;; ---------------------------------------------------------------------
 
+;; All transitions from a deterministic pda
+(defmethod all-transitions ((pda pda))
+  (format t "pda-d:all-transitions~%")
+  (with-accessors ((transitions pda-transitions))
+      pda
+    (let (res)
+      (maphash (lambda (k v) (push (list k v) res))
+               transitions)
+      res)))
+
+;; All transitions from a non-deterministic pda
+(defmethod all-transitions ((pda pda-n))
+  (format t "pda-n:all-transitions~%")
+  (with-accessors ((transitions pda-transitions))
+      pda
+    (let (res)
+      (maphash (lambda (k vs)
+                 (dolist (v vs)
+                   (push (list k v) res)))
+               transitions)
+      ;; (format t "pda-n:alk-transitions~a~%" res)
+      res)))
+
+;; ---------------------------------------------------------------------
+
 (defmethod get-transition ((pda pda) key)
   (with-accessors ((transitions pda-transitions))
       pda
@@ -165,20 +193,15 @@
   '((:a0 . 0) (:a1 . 1) (:a2 . 2)))
 
 (defun algorithm-1 (ranked-alphabet prefix-tree)
-  (let ((node-num 0)
-        states)
-    (let ((transitions (make-hash-table :test 'equal)))
-      (mapc
-       (lambda (node)
-         (let ((start-node node-num))
-           (setq node-num (+ node-num 1))
-           (let ((key (list start-node node :s))
-                 (value (list node-num (cdr (assoc node ranked-alphabet)))))
-             (setf (gethash key transitions) value))))
-       prefix-tree)
-      (dotimes (state (+ node-num 1))
-        (push state states))
-      (make-instance 'pda :alphabet ranked-alphabet :states states :transitions transitions))))
+  (let ((pda (new-pda-n ranked-alphabet))
+        (node-num 0))
+    (mapc
+     (lambda (symbol)
+       (let ((start-node node-num))
+         (setq node-num (+ node-num 1))
+         (add-transition pda symbol start-node node-num)))
+     prefix-tree)
+    pda))
 
 (defun eg1-prefix-tree ()
   (list :a2 :a2 :a0 :a1 :a0 :a1 :a0))
@@ -210,15 +233,11 @@
 ;;         δ(0, a, s) = (0, s^arity(a)), where s^0 = ɛ.
 
 (defun algorithm-2 (ranked-alphabet prefix-tree)
-  (let* ((machine (algorithm-1 ranked-alphabet prefix-tree))
-         (transitions (pda-transitions machine)))
+  (let* ((pda-n (algorithm-1 ranked-alphabet prefix-tree)))
     (mapc (lambda (assoc-symbol)
-            (let ((symbol (car assoc-symbol)))
-              (setf (gethash (list 0 symbol :s) transitions)
-                    (list 0 (cdr (assoc symbol ranked-alphabet))))))
+            (add-transition pda-n (car assoc-symbol) 0 0))
           ranked-alphabet)
-    (setf (pda-transitions machine) transitions)
-    machine))
+    pda-n))
 
 (defun test-algorithm-2 ()
   (let ((machine (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
@@ -248,57 +267,95 @@
 ;;     4. F' = { q' | q' ∈ Q' and q' intersect F /= {} }
 
 (defun algorithm-3 (pda-n)
-  (let* ((big-q (pda-states pda-n))
+  (format t "algorithm-3:~a~%" pda-n)
+  (pretty-print-pda pda-n)
+  ;; 1. Initially, Q' = {{0}}, q1 = {0} and {0} is an unmarked state
+  (let* (;; (big-q (pda-states pda-n))
          (big-q-prime (list (list 0)))
          (unmarked big-q-prime)
+         (pda-d (new-pda (pda-alphabet pda-n)))
          ;; (q1 0)
          )
-    (format t "alg3:big-q ~a~%" big-q)
+    (format t "alg3:big-q-prime ~a~%" big-q-prime)
+    ;; 2.(a) Select an unmarked state q' from Q'
     (loop while (not (null unmarked))
           do
              (progn
                (let ((q-prime (car unmarked)))
                  (setf unmarked (cdr unmarked))
                  (format t "alg3:unmarked ~a~%" unmarked)
+                 (format t "alg3:-------------------------~%")
                  (format t "alg3:q-prime ~a~%" q-prime)
-                 (format t "alg3:transitions ~a~%" (pda-transitions pda-n))
                  (dolist (symbol (pda-alphabet pda-n))
-                   ;; In section 2(b) here
+                   ;; 2.(b) For each symbol a ∈ A:
                    (format t "alg3:symbol ~a~%" symbol)
                    ;; 2(b)i. q'' = {q | δ(p,a,α) = (q,β) for all p ∈ q' }
                    (let ((q-prime2 nil))
-                     (maphash (lambda (k v)
-                                (if (eq (car symbol) (cadr k))
-                                    (format t " ~S,~S~%" k v)
-                                    (let ((q (car v)))
-                                      (if (member q q-prime)
-                                          (pushnew (car v) q-prime2)))))
-                              (pda-transitions pda-n))
-                     (format t "q-prime2: ~a~%" q-prime2)
+                     (mapc (lambda (transition)
+                             (let* ((k (car transition))
+                                    (v (cadr transition))
+                                    (p (car k))
+                                    (q (car v)))
+                               (format t "alg3:k,v: ~S,~S~%" k v)
+                               (format t "alg3:p,q: ~S,~S~%" p q)
+                               (format t "alg3:(car symbol): ~S~%" (car symbol))
+                               (format t "alg3:(cadr k): ~S~%" (cadr k))
+                               (if (eq (car symbol) (cadr k))
+                                   (progn
+                                     (format t "alg3:match~%")
+                                     (format t "alg3:q: ~S~%" q)
+                                     (if (member p q-prime :test 'equal)
+                                         (pushnew q q-prime2))))))
+                           (all-transitions pda-n))
+                     (format t "alg3:q-prime2: ~a~%" q-prime2)
                      ;; 2(b)ii. Add transition δ'(q', a, S) = (q'', S^Arity(a))
-                     (add-transition pda-n (car symbol) q-prime q-prime2)
-                     ;;  2(b)iii. If q'' not ∈ Q then add q'' to Q and set is as unmarked state
+                     (add-transition pda-d (car symbol) q-prime q-prime2)
+                     ;; 2(b)iii. If q'' not ∈ Q then add q'' to Q and set is as unmarked state
                      ;; Note: must be Q' above, else does not make sense.
                      (format t "alg3:big-q-prime ~a~%" big-q-prime)
                      (format t "alg3:q-prime2 ~a~%" q-prime2)
                      (if (not (member q-prime2 big-q-prime :test 'equal))
                          (progn
-                           (format t "oh shit~%")
+                           ;; (format t "oh shit~%")
                            (push q-prime2 big-q-prime)
                            (push q-prime2 unmarked)
-                           (break)
-                           )
-                           (format t "ok~%")
-                         )
+                           (format t "ok~%")))
                      ))))
              ;; (break)
           )
     (format t "alg3:big-q-prime ~a~%" big-q-prime)
-    ))
+    ;; (setf (pda-final-states pda-d)
+    pda-d))
+
+
+;; pda-n transitions, by symbol
+;;  ((0 :A0 :S) . ((0 0)))
+;;  ((2 :A0 :S) . ((3 0)))
+;;  ((4 :A0 :S) . ((5 0)))
+;;  ((6 :A0 :S) . ((7 0)))
+;;
+;;  ((0 :A1 :S) . ((0 1)))
+;;  ((3 :A1 :S) . ((4 1)))
+;;  ((5 :A1 :S) . ((6 1)))
+;;
+;;  ((0 :A2 :S) . ((0 2) (1 2)))
+;;  ((1 :A2 :S) . ((2 2)))
+;;
+;; So,initial (0)
+;;  :A0 -> (0)
+;;  :A1 -> (0)
+;;  :a2 -> (0 1)
+;; Q' = ( (0) (0 1))
+;; unmarked = (0 1)
+
 
 (defun test-algorithm-3 ()
-  (let ((pda-n (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree))))
-    (algorithm-3 pda-n)))
+  (let* ((pda-n (algorithm-2 (eg1-ranked-alphabet) (eg1-prefix-tree)))
+         (pda-d (algorithm-3 pda-n)))
+    (format t "Non-Deterministic---------------------~%")
+    (pretty-print-pda pda-n)
+    (format t "Deterministic---------------------~%")
+    (pretty-print-pda pda-d)))
 
 ;; ---------------------------------------------------------------------
 ;; p347
@@ -409,3 +466,28 @@
                                   (eg8-prefix-tree-2)
                                   (eg8-prefix-tree-3)))))
     (pretty-print-pda pda-p)))
+
+;; ---------------------------------------------------------------------
+
+;; p351
+;; - Example 10 :: The deterministic subtree matching PDA for the set of
+;;   trees P from Example 8, constructed by Alg. 3 from the
+;;   nondeterministic subtree matching PDA Mnps(P ) from Example 9, is
+
+;;     Mdps(P ) =
+;;       ({[0],[0,1],[0,1,2],[0,3,9],[0,4,10],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10]}
+;;         , A, {S}, δ3, [0], S, {[0,4,10], [0,5], [0 8], [0,10]}),
+;;      with its transition diagram (in an actual diagram)
+
+(defun algorithm-5-deterministic (alphabet trees)
+  (let* ((pda-n (algorithm-5 alphabet trees))
+         (pda-d (algorithm-3 pda-n)))
+    pda-d))
+
+(defun test-algorithm-5-deterministic ()
+  (let* ((pda-n (algorithm-5-deterministic
+                 (eg8-ranked-alphabet)
+                 (list (eg8-prefix-tree-1)
+                       (eg8-prefix-tree-2)
+                       (eg8-prefix-tree-3))))
+    (pretty-print-pda pda-d))))
