@@ -553,3 +553,51 @@ Note: This like does the reverse too."
          (pda-post (convert-to-postfix pda-d)))
     (pretty-print-pda pda-d)
     (pretty-print-pda pda-post)))
+
+;; ---------------------------------------------------------------------
+;; Running a PDA
+;; ---------------------------------------------------------------------
+
+(defclass pda-run ()
+  ((%pda :initarg :pda :accessor run-pda-pda)
+   (%state :initarg :state :accessor run-pda-state)
+   (%stack :initarg :stack :initform (list 1) :accessor run-pda-stack)))
+
+(defmethod transition ((run pda-run) symbol)
+  (format t "transition: ~a~%" symbol)
+  )
+
+;; ---------------------------------------------------------------------
+;;
+;; - Trace Fig 15 :: Trace of deterministic subtree PDA Mdps(P ) from
+;;   Example 10 for tree t2 in prefix notation
+;;     pref(t) = a2 a2 a2 a0 a0 a2 a2 a0 a0 b0 a2 b1 a0 a0.
+;;
+;;   | State      | Input                                     | PDS  |   |
+;;   |------------+-------------------------------------------+------+---|
+;;   | {0}        | a2 a2 a2 a0 a0 a2 a2 a0 a0 b0 a2 b1 a0 a0 | S    |   |
+;;   | {0, 1}     | a2 a2 a0 a0 a2 a2 a0 a0 b0 a2 b1 a0 a0    | SS   |   |
+;;   | {0, 1, 2}  | a2 a0 a0 a2 a2 a0 a0 b0 a2 b1 a0 a0       | SSS  |   |
+;;   | {0, 1, 2}  | a0 a0 a2 a2 a0 a0 b0 a2 b1 a0 a0          | SSSS |   |
+;;   | {0, 3, 9}  | a0 a2 a2 a0 a0 b0 a2 b1 a0 a0             | SSS  |   |
+;;   | {0, 4, 10} | a2 a2 a0 a0 b0 a2 b1 a0 a0          match | SS   |   |
+;;   | {0, 1}     | a2 a0 a0 b0 a2 b1 a0 a0                   | SSS  |   |
+;;   | {0, 1, 2}  | a0 a0 b0 a2 b1 a0 a0                      | SSSS |   |
+;;   | {0, 3, 9}  | a0 b0 a2 b1 a0 a0                         | SSS  |   |
+;;   | {0, 4, 10} | b0 a2 b1 a0 a0                      match | SS   |   |
+;;   | {0, 5}     | a2 b1 a0 a0                         match | S    |   |
+;;   | {0, 1}     | b1 a0 a0                                  | SS   |   |
+;;   | {0, 6}     | a0 a0                                     | SS   |   |
+;;   | {0, 7}     | a0                                        | S    |   |
+;;   | {0, 8}     | ε                                   match | ε    |   |
+
+(defun test-run-pda-1 ()
+  (let* ((pda-d (algorithm-5-deterministic
+                 (eg8-ranked-alphabet)
+                 (list (eg8-prefix-tree-1)
+                       (eg8-prefix-tree-2)
+                       (eg8-prefix-tree-3))))
+         (runner (make-instance 'pda-run :pda pda-d :state (list 0) :stack 1)))
+        (transition runner :a2)
+         ))
+
