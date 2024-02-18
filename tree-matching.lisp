@@ -654,7 +654,16 @@ Note: This like does the reverse too."
         (setf (gethash cache-key transitions) cache-value)))
     (setf (run-pda-transitions run) transitions)))
 
+
+(defmethod in-final-state ((run pda-run))
+  "If the current states is a final one, return it, else NIL."
+  (if (member (run-pda-state run) (pda-final-states (run-pda-pda run)))
+      (run-pda-state run)
+      nil))
+
 (defmethod transition ((run pda-run) symbol)
+  "Given input SYMBOL, advance the PDA RUN.
+The PDA is updated internally. Returns the state if it is accepting, else NIL."
   (format t "transition: ~a~%" symbol)
   (let* ((state (run-pda-state run))
          (value (gethash (list state symbol) (run-pda-transitions run)))
@@ -662,16 +671,18 @@ Note: This like does the reverse too."
          (to-state (cadr value))
          (push-arity (caddr value))
          (stack (run-pda-stack run)))
-    (format t "transition:transition ~a~%" value)
     ;; Check for valid stack match. In our degenerate case this is just a numeric check
     (if (>= stack match-arity)
         (progn
           ;; We're valid, pop match-arity and push push-arity, then change state
           (let ((new-stack (+ (- stack match-arity) push-arity)))
             (setf (run-pda-stack run) new-stack)
-            (setf (run-pda-state run) to-state)))
-        (format t "transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity))
-    run))
+            (setf (run-pda-state run) to-state))
+          (in-final-state run))
+        (progn
+          (format t "transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity)
+          nil))))
+
 
 ;; ---------------------------------------------------------------------
 ;;
@@ -703,18 +714,28 @@ Note: This like does the reverse too."
                  (list (eg8-prefix-tree-1)
                        (eg8-prefix-tree-2)
                        (eg8-prefix-tree-3))))
-         (runner (make-instance 'pda-run :pda pda-d :state (list 0) :stack 1)))
+         (runner (make-instance 'pda-run :pda pda-d :state (list 0) :stack 1))
+         (input (list :a2 :a2 :a2 :a0 :a0 :a2 :a2 :a0 :a0 :b0 :a2 :b1 :a0 :a0)))
     (pretty-print-pda pda-d)
-    (transition runner :a2)
-    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
-    (transition runner :a2)
-    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
-    (transition runner :a2)
-    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
-    (transition runner :a0)
-    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
-    (transition runner :a0)
-    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
-    ))
-
-;; Problem: transition from (0) :a2 should go to (0 1).
+    (let (res)
+      (dolist (symbol input)
+        (let ((accepting (transition runner symbol)))
+          (if accepting
+              (format t "match: ~a~%" accepting))
+          (push (list (run-pda-state runner) accepting) res)))
+      (format t "res: ~a~%" (reverse res))
+      (assert (equal (reverse res)
+                     '(((0 1) NIL)
+                       ((0 1 2) NIL)
+                       ((0 1 2) NIL)
+                       ((3 9 0) NIL)
+                       ((4 10 0) (4 10 0))
+                       ((0 1) NIL)
+                       ((0 1 2) NIL)
+                       ((3 9 0) NIL)
+                       ((4 10 0) (4 10 0))
+                       ((5 0) (5 0))
+                       ((0 1) NIL)
+                       ((6 0) NIL)
+                       ((7 0) NIL)
+                       ((8 0) (8 0))))))))
