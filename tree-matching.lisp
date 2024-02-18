@@ -6,6 +6,7 @@
 
 ;; Initially working through
 ;; Flouri, Tomás and Janousek, Jan and Melichar, Bořivoj: "Subtree Matching by Pushdown Automata", 2010
+;; DOI: 10.2298/CSIS1002331F
 
 
 ;; Tree t1 = ({a2_1, a2_2, a0_3, a1_4, a0_5, a1_6, a0_7}, R)
@@ -832,4 +833,73 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                        ((0 1 7) NIL)
                        ((8 0) (8 0)) ;;;;;;;;;;;
                        ((0) NIL))
-                       ))))))
+                       )))))
+
+;; =====================================================================
+;; ---------------------------------------------------------------------
+;; =====================================================================
+;; This part pased on
+;; "Tree template matching in ranked ordered trees by pushdown automata" 2012 by Flouri et al
+;; DOI: 10.1016/j.jda.2012.10.003
+
+
+;; ---------------------------------------------------------------------
+;; - Theorem 3 :: Let x be a factor of the postfix notation post(t) of
+;;   some tree t over a ranked alphabet A = (Σ, φ).
+;;   Then x is the postfix notation of a subtree of t,
+;;   if and only
+;;     if ac(x) = 0,and ac(y) >= 1 for each y,
+;;      where x = zy, y, z ∈ Σ+.
+;;
+;; AZ Note: probably much simpler to just use the original tree.
+
+;; (defun
+
+;; ---------------------------------------------------------------------
+;; - Definition 8 (Set of subtrees) :: Given a tree t formed over a
+;;   ranked alphabet A_S = (Σ_S, φ_S) such that post(t) = x1x2 ...xm, the
+;;   set of subtrees of t is the set Sub(t) consisting of the postfix
+;;   notations of all subtrees of t, and is formally defined as:
+;;
+;;      Sub(t) = {x: post(t) = yxz, y,z ∈ Σ∗, x ∈ Σ+, x ≠ S}
+;;                such that Theorem 3 holds for each x ∈ Sub(t).
+(defun set-of-subtrees (tree)
+  "Sub(post)"
+  (if (listp tree)
+      (append (mapcan #'set-of-subtrees (cdr tree)) (list (car tree)))
+      (list tree)))
+
+
+;; ---------------------------------------------------------------------
+;; - Algorithm 1 :: Construction of a nondeterministic tree template matching PDA.
+;;
+;;   Input :Tree template post(P) = post(p1)post(p2)...post(p_φ(v))v over A
+;;   Output: Nondeterministic PDA M = ({q_I, q_F}, A, Γ, δ,{q_I}, ε, {q_F})
+;;
+;;    1 Let Γ ← {{x}: x ∈ Sub(P)} ∪ {{S}}
+;;    2 For each x ∈ Σ,let q_I T^φ(x) x −→Mx  q_I T, whereT ={S}
+;;    3 Let q_I X_φ(x) ... X_2 X_1 −→Mx  q_I X,
+;;        where X_i ={post(t_i)}, X ={post(t)},for each post(t) = post(t_1)post(t_2)... post(t_φ(x))x ∈ Sub(P ) \{post(P)}
+;;    4 Let q_I X_φ(v) ... X2 X1 −→ Mv  q_F X, where X_i = {post(p_i)}, X = {post(P)}
+
+;; We modify it to take in the original tree, and generate postfix as
+;; needed. This is more true to the real world use case.
+(defun algorithm-2-1 (alphabet tree)
+   ;; 1. Let Γ ← {{x}: x ∈ Sub(P)} ∪ {{S}}
+  (let ((gamma (cons (list :S) (set-of-subtrees tree))))
+    (format T "alg-2-1:gamma ~a~%" gamma)
+    ))
+
+(defun eg17-template-tree ()
+  '(:a2
+    (:a2
+     (:a2 :a0 :S)
+     (:a2 :S  :S))
+    (:a2 :S :b0)))
+
+(defun eg17-template ()
+  (list :a0 :S :a2 :S :S :a2 :a2 :S :b0 :a2 :a2))
+
+(defun test-algorithm-2-1 ()
+  (algorithm-2-1 (eg1-ranked-alphabet) (eg17-template-tree))
+  )
