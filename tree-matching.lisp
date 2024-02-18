@@ -138,8 +138,6 @@
       (values key value)))
 
 (defmethod add-transition ((pda pda) symbol from-node to-node match-arity &optional push-arity)
-  (format t "add-transition pda: from-node symbol to-node match-arity push-arity: ~a ~a ~a ~a ~a~%"
-          from-node symbol to-node match-arity push-arity)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -154,8 +152,6 @@
 
 ;; Add a transition to a non-deterministic pda
 (defmethod add-transition ((pda pda-n) symbol from-node to-node match-arity &optional push-arity)
-  (format t "add-transition pda-n:symbol from-node to-node match-arity push-arity: ~a ~a ~a ~a~%"
-          from-node to-node match-arity push-arity)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -483,7 +479,8 @@ Note: This like does the reverse too."
   (list :a2 :a0 :a0))
 
 (defun test-algorithm-4 ()
-  (let ((pda-p (algorithm-4 (new-pda (eg8-ranked-alphabet))
+  ;; (let ((pda-p (algorithm-4 (new-pda (eg8-ranked-alphabet))
+  (let ((pda-p (algorithm-4 (new-pda-n (eg8-ranked-alphabet))
                             (eg8-ranked-alphabet)
                             (list (eg8-prefix-tree-1)
                                   (eg8-prefix-tree-2)
@@ -532,21 +529,21 @@ Note: This like does the reverse too."
     (format t "~S~%" (all-transitions-sorted pda-p))
     (assert
      (equal (all-transitions-sorted pda-p)
-            '(((0 a0 1) (0 0))
-              ((0 a1 1) (0 1))
-              ((0 a2 1) (0 2))
-              ((0 a2 1) (1 2))
-              ((0 b0 1) (0 0))
-              ((0 b1 1) (0 1))
-              ((1 a0 1) (9 0))
-              ((1 a2 1) (2 2))
-              ((1 b1 1) (6 1))
-              ((2 a0 1) (3 0))
-              ((3 a0 1) (4 0))
-              ((4 b0 1) (5 0))
-              ((6 a0 1) (7 0))
-              ((7 a0 1) (8 0))
-              ((9 a0 1) (10 0)))))))
+            '(((0 :a2 1) (0 2))
+              ((0 :a2 1) (1 2))
+              ((0 :a0 1) (0 0))
+              ((0 :a1 1) (0 1))
+              ((0 :b0 1) (0 0))
+              ((0 :b1 1) (0 1))
+              ((1 :a2 1) (2 2))
+              ((1 :b1 1) (6 1))
+              ((1 :a0 1) (9 0))
+              ((2 :a0 1) (3 0))
+              ((3 :a0 1) (4 0))
+              ((4 :b0 1) (5 0))
+              ((6 :a0 1) (7 0))
+              ((7 :a0 1) (8 0))
+              ((9 :a0 1) (10 0)))))))
 
 ;; ---------------------------------------------------------------------
 
@@ -645,7 +642,6 @@ Note: This like does the reverse too."
         (pda-transitions (all-transitions (run-pda-pda run))))
     (dolist (transition pda-transitions)
       ;; e.g. ( ((7 0) B1 1) ((0) 1))
-      (format t "pda-run:initialize-instance: ~a~%" transition)
       (let* ((key (car transition))
              (value (cadr transition))
              (from-state (car key))
@@ -714,6 +710,8 @@ Note: This like does the reverse too."
     (transition runner :a2)
     (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
     (transition runner :a2)
+    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
+    (transition runner :a0)
     (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
     (transition runner :a0)
     (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
