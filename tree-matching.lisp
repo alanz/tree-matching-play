@@ -455,8 +455,10 @@ Note: This like does the reverse too."
               (t
                ;; 2(b)ii. Else if transition δ(l, aj_i, S) is defined
                ;;  A. l <- p where (p, γ) <- δ(l, aj, S)
-               (setf l (car to))
-               ))))
+               (setf l (if (listp (car to))
+                           ;; Deal with pda-n usage to
+                           (caar to)
+                           (car to)))))))
         ;; 2(c) F <- F union {l}
         (pushnew l big-f :test 'equal)))
     (setf (pda-initial-state pda) 0)
