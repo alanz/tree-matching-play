@@ -235,11 +235,7 @@ Note: This like does the reverse too."
                    (from-arity (caddr from))
                    (to-node (car to))
                    (to-arity (cadr to)))
-            (format t "ctp:~a~%" transition)
-            (format t "ctp:(from,to) ~a, ~a~%" from to)
-            (format t "ctp:(from,to) node:~a arity:~a,  node:~a arity:~a~%" from-node from-arity to-node to-arity)
-            (add-transition pda from-symbol from-node to-node from-arity to-arity)
-            ))
+            (add-transition pda from-symbol from-node to-node to-arity from-arity)))
           transitions)
     pda))
 
@@ -469,15 +465,71 @@ Note: This like does the reverse too."
    ;; pref(t1) = a2 a2 a0 a0 b0,
    ;; pref(t2) = a2 b1 a0 a0 and
    ;; pref(t3) = a2 a0 a0.
+
+;; -------------------------------------
+
+;; (defun eg8-prefix-tree-1 ()
+;;   (list :a2 :a2 :a0 :a0 :b0))
+
+;; (defun eg8-prefix-tree-2 ()
+;;   (list :a2 :b1 :a0 :a0))
+
+;; (defun eg8-prefix-tree-3 ()
+;;   (list :a2 :a0 :a0))
+
+(defun eg8-tree-1 ()
+  '(:a2
+    (:a2 :a0 :a0)
+    :b0))
+
 (defun eg8-prefix-tree-1 ()
   (list :a2 :a2 :a0 :a0 :b0))
+(defun eg8-postfix-tree-1 ()
+  (list :a0 :a0 :a2 :b0 :a2))
+
+;; -------------------------------------
+
+(defun eg8-tree-2 ()
+    '(:a2
+      (:b1 :a0)
+      :b0))
 
 (defun eg8-prefix-tree-2 ()
   (list :a2 :b1 :a0 :a0))
+(defun eg8-postfix-tree-2 ()
+  (list :a0 :b1 :a0 :a2))
+
+;; -------------------------------------
+
+(defun eg8-tree-3 ()
+  '(:a2 :a0 :a0))
 
 (defun eg8-prefix-tree-3 ()
   (list :a2 :a0 :a0))
 
+(defun eg8-postfix-tree-3 ()
+  (list :a0 :a0 :a2))
+
+;; -------------------------------------
+
+(defun eg8-tree-main ()
+  '(:a2
+    (:a2
+     (:a2 :a0 :a0)
+     (:a2
+      (:a2 :a0 :a0)
+      :b0))
+    (:a2
+     (:b1 :a0)
+     :a0)))
+
+(defun eg8-prefix-tree-main ()
+  (list :a2 :a2 :a2 :a0 :a0 :a2 :a2 :a0 :a0 :b0 :a2 :b1 :a0 :a0))
+
+(defun eg8-postfix-tree-main ()
+  (list :a0 :a0 :a2 :a0 :a0 :a2 :b0 :a2 :a2 :a0 :b1 :a0 :a2 :a2))
+
+;; -------------------------------------
 (defun test-algorithm-4 ()
   ;; (let ((pda-p (algorithm-4 (new-pda (eg8-ranked-alphabet))
   (let ((pda-p (algorithm-4 (new-pda-n (eg8-ranked-alphabet))
@@ -715,7 +767,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                        (eg8-prefix-tree-2)
                        (eg8-prefix-tree-3))))
          (runner (make-instance 'pda-run :pda pda-d :state (list 0) :stack 1))
-         (input (list :a2 :a2 :a2 :a0 :a0 :a2 :a2 :a0 :a0 :b0 :a2 :b1 :a0 :a0)))
+         (input (eg8-prefix-tree-main)))
     (pretty-print-pda pda-d)
     (let (res)
       (dolist (symbol input)
@@ -739,3 +791,45 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                        ((6 0) NIL)
                        ((7 0) NIL)
                        ((8 0) (8 0))))))))
+
+;; ---------------------------------------------------------------------
+
+;; Run a PDA in postfix
+
+
+(defun test-run-pda-postfix-1 ()
+  (let* ((pda-d (algorithm-5-deterministic
+                 (eg8-ranked-alphabet)
+                 ;; (list (eg8-prefix-tree-1)
+                 ;;       (eg8-prefix-tree-2)
+                 ;;       (eg8-prefix-tree-3))))
+                 (list (eg8-postfix-tree-1)
+                       (eg8-postfix-tree-2)
+                       (eg8-postfix-tree-3))))
+         (pda-post (convert-to-postfix pda-d))
+         (runner (make-instance 'pda-run :pda pda-post :state (list 0) :stack 0))
+         (input (eg8-postfix-tree-main)))
+    (pretty-print-pda pda-post)
+    (let (res)
+      (dolist (symbol input)
+        (let ((accepting (transition runner symbol)))
+          (if accepting
+              (format t "match: ~a~%" accepting))
+          (push (list (run-pda-state runner) accepting) res)))
+      (format t "res: ~a~%" (reverse res))
+      (assert (equal (reverse res)
+                     '(((0 1) NIL)
+                       ((0 1 2) NIL)
+                       ((3 0) (3 0)) ;;;;;;;;
+                       ((0 1) NIL)
+                       ((0 1 2) NIL)
+                       ((3 0) (3 0)) ;;;;;;;;;;
+                       ((4 0) NIL)
+                       ((5 0) (5 0)) ;;;;;;;;;;
+                       ((0) NIL)
+                       ((0 1) NIL)
+                       ((6 0) NIL)
+                       ((0 1 7) NIL)
+                       ((8 0) (8 0)) ;;;;;;;;;;;
+                       ((0) NIL))
+                       ))))))
