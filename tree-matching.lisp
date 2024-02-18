@@ -363,9 +363,15 @@ Note: This like does the reverse too."
                            (push q-prime2 big-q-prime)
                            (push q-prime2 unmarked)))
                      ))))
-             ;; (break)
           )
-    ;; (setf (pda-final-states pda-d)
+    (setf (pda-initial-state pda-d) (list 0))
+    ;; 4. F' = { q' | (bif-f (pda-final-states pda-n)q' ∈ Q' and q' intersect F /= {} }
+    (let ((big-f-prime)
+          (big-f (pda-final-states pda-n)))
+      (dolist (q-prime big-q-prime)
+        (if (intersection q-prime big-f)
+            (pushnew q-prime big-f-prime)))
+      (setf (pda-final-states pda-d) big-f-prime))
     pda-d))
 
 
