@@ -138,6 +138,8 @@
       (values key value)))
 
 (defmethod add-transition ((pda pda) symbol from-node to-node match-arity &optional push-arity)
+  (format t "add-transition pda: from-node symbol to-node match-arity push-arity: ~a ~a ~a ~a ~a~%"
+          from-node symbol to-node match-arity push-arity)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -152,6 +154,8 @@
 
 ;; Add a transition to a non-deterministic pda
 (defmethod add-transition ((pda pda-n) symbol from-node to-node match-arity &optional push-arity)
+  (format t "add-transition pda-n:symbol from-node to-node match-arity push-arity: ~a ~a ~a ~a~%"
+          from-node to-node match-arity push-arity)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -187,6 +191,20 @@
                transitions)
       ;; (format t "pda-n:alk-transitions~a~%" res)
       res)))
+
+(defmethod all-transitions-sorted ((pda pda))
+  (sort (all-transitions pda) (lambda (a b) (<= (caar a) (caar b)))))
+
+
+(defun transition-sort-key (transition)
+  (let ((state (caar transition)))
+    (if (listp state)
+               (car state)
+               state)))
+
+(defmethod all-transitions-sorted ((pda pda-n))
+  (sort (all-transitions pda) (lambda (a b)
+                                (<= (transition-sort-key a) (transition-sort-key b)))))
 
 ;; ---------------------------------------------------------------------
 
@@ -409,9 +427,7 @@ Note: This like does the reverse too."
   (setf (pda-alphabet pda) alphabet)
   ;; 1. Let q <- 0 an F <- {}
   (let ((q 0)
-        (big-f '())
-        ;; (pda (new-pda alphabet))
-        )
+        (big-f '()))
     ;; 2. For each tree ti = a1_i a2_i, .. a|ti|_i, 1 <= i <= m do
     (dolist (tree trees)
       ;; 2(a) Let l <- 0
@@ -433,7 +449,8 @@ Note: This like does the reverse too."
               (t
                ;; 2(b)ii. Else if transition δ(l, aj_i, S) is defined
                ;;  A. l <- p where (p, γ) <- δ(l, aj, S)
-               (setf l (car to))))))
+               (setf l (car to))
+               ))))
         ;; 2(c) F <- F union {l}
         (pushnew l big-f :test 'equal)))
     (setf (pda-initial-state pda) 0)
@@ -464,9 +481,10 @@ Note: This like does the reverse too."
                                   (eg8-prefix-tree-2)
                                   (eg8-prefix-tree-3)))))
     (pretty-print-pda pda-p)
-    (format t "~S~%" (sort (all-transitions pda-p) (lambda (a b) (<= (caar a) (caar b)))))
+    ;; (format t "~S~%" (sort (all-transitions pda-p) (lambda (a b) (<= (caar a) (caar b)))))
+    (format t "~S~%" (all-transitions-sorted pda-p))
     (assert
-     (equal (sort (all-transitions pda-p) (lambda (a b) (<= (caar a) (caar b))))
+     (equal (all-transitions-sorted pda-p)
             '(((0 :a2 1) (1 2))
               ((1 :a2 1) (2 2))
               ((1 :b1 1) (6 1))
@@ -502,7 +520,25 @@ Note: This like does the reverse too."
                             (list (eg8-prefix-tree-1)
                                   (eg8-prefix-tree-2)
                                   (eg8-prefix-tree-3)))))
-    (pretty-print-pda pda-p)))
+    (pretty-print-pda pda-p)
+    (format t "~S~%" (all-transitions-sorted pda-p))
+    (assert
+     (equal (all-transitions-sorted pda-p)
+            '(((0 a0 1) (0 0))
+              ((0 a1 1) (0 1))
+              ((0 a2 1) (0 2))
+              ((0 a2 1) (1 2))
+              ((0 b0 1) (0 0))
+              ((0 b1 1) (0 1))
+              ((1 a0 1) (9 0))
+              ((1 a2 1) (2 2))
+              ((1 b1 1) (6 1))
+              ((2 a0 1) (3 0))
+              ((3 a0 1) (4 0))
+              ((4 b0 1) (5 0))
+              ((6 a0 1) (7 0))
+              ((7 a0 1) (8 0))
+              ((9 a0 1) (10 0)))))))
 
 ;; ---------------------------------------------------------------------
 
@@ -527,7 +563,40 @@ Note: This like does the reverse too."
                  (list (eg8-prefix-tree-1)
                        (eg8-prefix-tree-2)
                        (eg8-prefix-tree-3)))))
-    (pretty-print-pda pda-d)))
+    (pretty-print-pda pda-d)
+    (format t "~S~%" (all-transitions-sorted pda-d))
+    (assert
+     (equal (all-transitions-sorted pda-d)
+            '((((0) :A0 1) . ((0) 0))
+              (((0) :A1 1) . ((0) 1))
+              (((0) :A2 1) . ((0 1) 2))
+              (((0) :B0 1) . ((0) 0))
+              (((0 1) :A0 1) . ((0) 0))
+              (((0 1) :A1 1) . ((0) 1))
+              (((0 1) :A2 1) . ((0 1 2) 2))
+              (((0 1) :B0 1) . ((0) 0))
+              (((0 1) :B1 1) . ((0) 1))
+              (((0 1 2) :A0 1) . ((3 0) 0))
+              (((0 1 2) :A1 1) . ((0) 1))
+              (((0 1 2) :A2 1) . ((0 1 2) 2))
+              (((0 1 2) :B0 1) . ((0) 0))
+              (((0 1 2) :B1 1) . ((0) 1))
+              (((3 0) :A0 1) . ((4 0) 0))
+              (((3 0) :A1 1) . ((0) 1))
+              (((3 0) :A2 1) . ((0 1) 2))
+              (((3 0) :B0 1) . ((0) 0))
+              (((3 0) :B1 1) . ((0) 1))
+              (((4 0) :A0 1) . ((0) 0))
+              (((4 0) :A1 1) . ((0) 1))
+              (((4 0) :A2 1) . ((0 1) 2))
+              (((4 0) :B0 1) . ((5 0) 0))
+              (((4 0) :B1 1) . ((0) 1))
+              (((5 0) :A0 1) . ((0) 0))
+              (((5 0) :A1 1) . ((0) 1))
+              (((5 0) :A2 1) . ((0 1) 2))
+              (((5 0) :B0 1) . ((0) 0))
+              (((5 0) :B1 1) . ((0) 1))
+              )))))
 
 ;; ---------------------------------------------------------------------
 ;; Postfix matching
@@ -589,16 +658,16 @@ Note: This like does the reverse too."
          (to-state (cadr value))
          (push-arity (caddr value))
          (stack (run-pda-stack run)))
-    (format t "transition:state, value ~a, ~a~%" state value)
-    (format t "transition:stack, match-arity, push-arity ~a, ~a, ~a~%" stack match-arity push-arity)
+    (format t "transition:transition ~a~%" value)
     ;; Check for valid stack match. In our degenerate case this is just a numeric check
     (if (>= stack match-arity)
         (progn
           ;; We're valid, pop match-arity and push push-arity, then change state
           (let ((new-stack (+ (- stack match-arity) push-arity)))
-            (format t"transition:new-stack ~a~%" new-stack)
-            (format t"transition:new-state ~a~%" to-state)))
-        (format t"transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity))))
+            (setf (run-pda-stack run) new-stack)
+            (setf (run-pda-state run) to-state)))
+        (format t "transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity))
+    run))
 
 ;; ---------------------------------------------------------------------
 ;;
@@ -632,6 +701,14 @@ Note: This like does the reverse too."
                        (eg8-prefix-tree-3))))
          (runner (make-instance 'pda-run :pda pda-d :state (list 0) :stack 1)))
     (pretty-print-pda pda-d)
-    (transition runner :a2)))
+    (transition runner :a2)
+    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
+    (transition runner :a2)
+    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
+    (transition runner :a2)
+    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
+    (transition runner :a0)
+    (format t "test-run-pda-1:state,stack = ~a ~a~%" (run-pda-state runner) (run-pda-stack runner))
+    ))
 
 ;; Problem: transition from (0) :a2 should go to (0 1).
