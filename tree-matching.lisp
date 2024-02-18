@@ -419,7 +419,7 @@ Note: This like does the reverse too."
         ;; 2(b) For j = 1 to |ti| do
         (dolist (symbol tree)
           ;; 2(b)i. If the transition δ(l, aj_i, S) is not defined then
-          (let ((to (get-transition pda (list l symbol :s))))
+          (let ((to (get-transition pda (list l symbol 1))))
             (cond
               ((null to)
                (progn
@@ -463,7 +463,20 @@ Note: This like does the reverse too."
                             (list (eg8-prefix-tree-1)
                                   (eg8-prefix-tree-2)
                                   (eg8-prefix-tree-3)))))
-    (pretty-print-pda pda-p)))
+    (pretty-print-pda pda-p)
+    (format t "~S~%" (sort (all-transitions pda-p) (lambda (a b) (<= (caar a) (caar b)))))
+    (assert
+     (equal (sort (all-transitions pda-p) (lambda (a b) (<= (caar a) (caar b))))
+            '(((0 :a2 1) (1 2))
+              ((1 :a2 1) (2 2))
+              ((1 :b1 1) (6 1))
+              ((1 :a0 1) (9 0))
+              ((2 :a0 1) (3 0))
+              ((3 :a0 1) (4 0))
+              ((4 :b0 1) (5 0))
+              ((6 :a0 1) (7 0))
+              ((7 :a0 1) (8 0))
+              ((9 :a0 1) (10 0)))))))
 
 ;; ---------------------------------------------------------------------
 ;; p350
@@ -479,6 +492,7 @@ Note: This like does the reverse too."
 
 (defun algorithm-5 (alphabet trees)
   (let ((pda-n (algorithm-4 (new-pda-n alphabet) alphabet trees)))
+    (pretty-print-pda pda-n)
     (dolist (symbol (pda-alphabet pda-n))
       (add-transition pda-n (car symbol) 0 0 1))
     pda-n))
@@ -584,9 +598,7 @@ Note: This like does the reverse too."
           (let ((new-stack (+ (- stack match-arity) push-arity)))
             (format t"transition:new-stack ~a~%" new-stack)
             (format t"transition:new-state ~a~%" to-state)))
-        (format t"transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity))
-    )
-  )
+        (format t"transition:could not match stack: stack, match-arity ~a, ~a~%" stack match-arity))))
 
 ;; ---------------------------------------------------------------------
 ;;
