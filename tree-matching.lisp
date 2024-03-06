@@ -1186,3 +1186,52 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;; Algorithm A requires
 ;;   O(patsize^2 x rank) time
 ;;   O(patsize^2) space
+
+(defun algorithm-a (trees)
+  (let ((ta (make-instance 'tree-arena)))
+    (pretty-print-tree-arena ta)
+    (dolist (tree trees)
+      (add-tree ta tree))
+    (pretty-print-tree-arena ta)
+    (terpri)
+    (let ((subtrees-by-height (subtrees-by-height ta))
+          gb-s
+          edges)
+      ;; 2. Initialise Gb_S to the graph with vertices PF and no edges
+      (dolist (subtree-item subtrees-by-height)
+        (let ((idx (cadr subtree-item)))
+          (push idx gb-s)))
+      ;; 3. For each p = a(p1, .., pm), m ≥ 0, of height h, by increasing order of height, do
+      (dolist (subtree-item subtrees-by-height)
+        (let ((height-p (car subtree-item))
+              (idx-p (cadr subtree-item))
+              (tree-p (caddr subtree-item)))
+          (format t "alg-a:p: ~a ~a ~a~%" height-p idx-p tree-p)
+          ;; 4.   For each p' in PF of height ≤ h do
+          (dolist (subtree-item subtrees-by-height)
+            (let ((height-p-prime (car subtree-item))
+                  (idx-p-prime (cadr subtree-item))
+                  (tree-p-prime (caddr subtree-item)))
+              ;; (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
+              (if (<  height-p-prime height-p)
+                  (let ((is-in-gb-s nil))
+                    (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
+                    ;; 5. If p' = v or
+                    ;;       p' = a(p1', .., pm') where,
+                    ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
+                    (if (or (eq tree-p-prime :v)
+                            is-in-gb-s)
+                        (progn
+                          (format t "alg-a:p' ~a~%" "eq")
+                          ;; 6. Add p -> p' to Gb_S
+                          (push (list idx-p idx-p-prime) edges))
+                        )
+                    )))
+              ))
+          (terpri)
+        (format t "alg-a:gb-s ~a~%" gb-s)
+        (format t "alg-a:edges ~a~%" edges)
+          )))))
+
+(defun test-algorithm-a ()
+  (algorithm-a (list (eg-3.1-p1) (eg-3.1-p2))))
