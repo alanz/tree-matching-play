@@ -110,6 +110,10 @@
   ()
   (:documentation "Version of PDA allowing nondeterministic transitions"))
 
+(defclass pda-t-n (pda)
+  ()
+  (:documentation "Version of PDA for templates allowing nondeterministic transitions"))
+
 (defun pretty-print-pda (pda &optional (stream t))
   (format stream "PDA~%")
   (format stream "PDA-alphabet:~a~%" (pda-alphabet pda))
@@ -126,6 +130,9 @@
 
 (defun new-pda-n (alphabet)
   (make-instance 'pda-n :alphabet alphabet))
+
+(defun new-pda-t-n (alphabet)
+  (make-instance 'pda-t-n :alphabet alphabet))
 
 ;; ---------------------------------------------------------------------
 
@@ -153,6 +160,21 @@
 
 ;; Add a transition to a non-deterministic pda
 (defmethod add-transition ((pda pda-n) symbol from-node to-node match-arity &optional push-arity)
+  (with-accessors ((alphabet pda-alphabet)
+                   (states pda-states)
+                   (transitions pda-transitions))
+      pda
+    (pushnew from-node states :test 'equal)
+    (pushnew to-node states :test 'equal)
+    (let ((key (list from-node symbol match-arity))
+          (new-dest (if push-arity
+                        (list to-node push-arity)
+                        (list to-node (cdr (assoc symbol alphabet))))))
+      (setf (gethash key transitions)
+            (pushnew new-dest (gethash key transitions) :test 'equal)))))
+
+
+(defmethod add-transition ((pda pda-t-n) symbol from-node to-node match-arity &optional push-arity)
   (with-accessors ((alphabet pda-alphabet)
                    (states pda-states)
                    (transitions pda-transitions))
@@ -863,11 +885,18 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;;
 ;;      Sub(t) = {x: post(t) = yxz, y,z ∈ Σ∗, x ∈ Σ+, x ≠ S}
 ;;                such that Theorem 3 holds for each x ∈ Sub(t).
+(defun set-of-subtrees-worker (tree)
+  (if (listp tree)
+      (append (list tree) (mapcan #'set-of-subtrees-worker (cdr tree)) )
+      (list tree)))
+
 (defun set-of-subtrees (tree)
   "Sub(post)"
-  (if (listp tree)
-      (append (mapcan #'set-of-subtrees (cdr tree)) (list (car tree)))
-      (list tree)))
+  (let ((all-trees (set-of-subtrees-worker tree))
+        uniques)
+    (dolist (subtree all-trees)
+      (pushnew subtree uniques :test 'equal))
+    (mapcar (lambda (subtree) (postfix subtree)) uniques)))
 
 
 ;; ---------------------------------------------------------------------
@@ -877,18 +906,43 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;;   Output: Nondeterministic PDA M = ({q_I, q_F}, A, Γ, δ,{q_I}, ε, {q_F})
 ;;
 ;;    1 Let Γ ← {{x}: x ∈ Sub(P)} ∪ {{S}}
-;;    2 For each x ∈ Σ,let q_I T^φ(x) x −→Mx  q_I T, whereT ={S}
+;;
+;;    2 For each x ∈ Σ,let q_I T^φ(x) x −→Mx  q_I T, where T ={S}
+;;
 ;;    3 Let q_I X_φ(x) ... X_2 X_1 −→Mx  q_I X,
-;;        where X_i ={post(t_i)}, X ={post(t)},for each post(t) = post(t_1)post(t_2)... post(t_φ(x))x ∈ Sub(P ) \{post(P)}
+;;        where
+;;          X_i ={post(t_i)},
+;;          X ={post(t)},
+;;            for each post(t) = post(t_1)post(t_2)... post(t_φ(x))x ∈ Sub(P ) \ {post(P)}
+;;
 ;;    4 Let q_I X_φ(v) ... X2 X1 −→ Mv  q_F X, where X_i = {post(p_i)}, X = {post(P)}
 
 ;; We modify it to take in the original tree, and generate postfix as
 ;; needed. This is more true to the real world use case.
 (defun algorithm-2-1 (alphabet tree)
    ;; 1. Let Γ ← {{x}: x ∈ Sub(P)} ∪ {{S}}
-  (let ((gamma (cons (list :S) (set-of-subtrees tree))))
+  (let* ((pda-n (new-pda-t-n alphabet))
+         (subsets (set-of-subtrees tree))
+         (gamma (pushnew (list :S) subsets :test 'equal))
+         (q_initial (list 0))
+         (q_final (list 1)))
     (format T "alg-2-1:gamma ~a~%" gamma)
-    ))
+    ;; 2 For each x ∈ Σ,let q_I T^φ(x) x −→Mx  q_I T, where T ={S}
+    ;; For simplicity, in the rest of the text, we use the notation
+    ;;      pα  −→Ma qβ
+    ;;   when referring to the transition
+    ;;      δ(p, a, α) = (q,β) of a PDA M.
+    (dolist (symbol-assoc alphabet)
+      ;; let q_I T^φ(x) x −→Mx  q_I T
+      ;; i.e.  δ(q_I, T^φ(x), x) = (q_I,T)
+      (let ((match-arity 0)
+            (push-arity 0))
+        (add-transition pda-n (car symbol-assoc) q_initial q_initial match-arity push-arity)))
+
+   ;; 3 Let q_I X_φ(x) ... X_2 X_1 −→Mx  q_I X,
+   ;;     where X_i ={post(t_i)}, X ={post(t)},for each post(t) = post(t_1)post(t_2)... post(t_φ(x))x ∈ Sub(P ) \{post(P)}
+
+    pda-n))
 
 (defun eg17-template-tree ()
   '(:a2
@@ -900,6 +954,235 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 (defun eg17-template ()
   (list :a0 :S :a2 :S :S :a2 :a2 :S :b0 :a2 :a2))
 
+(defun test-set-of-subtrees ()
+  (let ((subtrees (set-of-subtrees (eg17-template-tree))))
+    (format t "~a~%" subtrees)
+    (assert
+     (equal subtrees
+            '((:B0)
+              (:S :B0 :A2)
+              (:S :S :A2)
+              (:S)
+              (:A0)
+              (:A0 :S :A2)
+              (:A0 :S :A2 :S :S :A2 :A2)
+              (:A0 :S :A2 :S :S :A2 :A2 :S :B0 :A2 :A2)
+              )))))
+
+;; Expecting
+;; X2 → b0
+;; X5 → S b0 a2
+;; X4 → S S a2
+;; T → S
+;; X1 → a0
+;; X3 → a0 S a2
+;; X6 → a0 S a2 S S a2 a2
+;; X7 → a0 S a2 S S a2 a2 S b0 a2 a2
+
 (defun test-algorithm-2-1 ()
-  (algorithm-2-1 (eg1-ranked-alphabet) (eg17-template-tree))
-  )
+  (let ((pda (algorithm-2-1 (eg1-ranked-alphabet) (eg17-template-tree))))
+    (pretty-print-pda pda)))
+
+
+
+;; =====================================================================
+;; Hoffmann and O'Donnell : Pattern Matching in Trees
+;; https://dl.acm.org/doi/10.1145/322290.322295
+;; =====================================================================
+
+;; p73
+;; - Example 3.1 :: Consider a matching problem in which the patterns
+;;     p1 = a(a(v,v),b)
+;;     p2 = a(b,v)
+;;   are to be matched. Assume the alphabet Σ is {a,b,c}, where a is
+;;   binary, and b and c are nullary symbols.
+
+(defun eg-3.1-ranked-alphabet ()
+  '((:a . 2) (:b . 0) (:c . 0)))
+
+(defun eg-3.1-p1 ()
+  "p1 = a(a(v,v),b)"
+  '(:a
+    (:a :v :v)
+    :b))
+
+(defun eg-3.1-p2 ()
+  "p2 = a(b,v)"
+  '(:a :b :v))
+
+;; p74
+;; - Definition 4.1 :: Let F = {p1, .., pk} be a set of patterns in S_v
+;;   and *PF* the set of all subtrees of the pi. A subset M of PF is a
+;;   *match set* for F if there exists a tree t in S such that every
+;;   pattern in M matches t at the root and every pattern in PF - M does
+;;   not match t at the root.
+
+;; ---------------------------------------------------------------------
+;; Tree Arena Start
+;; ---------------------------------------------------------------------
+
+;; AZ note: for a tree stored in an arena, each node is simply an arena index.
+;; So mimic this one-way mapping.
+
+(defclass tree-arena ()
+  ((%trees :initarg :trees :initform '() :accessor ta-trees)
+   (%ids :initarg :ids :initform (make-array 0 :fill-pointer t :adjustable t) :accessor ta-ids)
+   (%last-index :initform 0 :accessor ta-last-index)))
+
+(defun pretty-print-tree-arena (ta &optional (stream t))
+  (format stream "Tree Arena~%")
+  (format stream "ta-trees:~a~%" (ta-trees ta))
+  (format stream "ta-ids:~a~%" (ta-ids ta))
+  (format stream "ta-last-index:~a~%" (ta-last-index ta))
+  (terpri stream))
+
+(defmethod add-node ((tree-arena tree-arena) node)
+  (with-accessors ((trees ta-trees)
+                   (ids ta-ids))
+      tree-arena
+    (format t "add-node:node=~a~%" node)
+    (let ((last-index (vector-push-extend node ids)))
+      (format t "add-node:last-index=~a~%" last-index)
+      (setf (ta-last-index tree-arena) last-index))))
+
+(defmethod add-tree ((tree-arena tree-arena) tree)
+  (with-accessors ((trees ta-trees)
+                   (ids ta-ids))
+      tree-arena
+    (format t "add-tree:tree=~a~%" tree)
+    ;; Add all the immediate subtrees
+    (if (listp tree)
+        (progn
+          ;; For a tree, do the subtrees then the root
+          (dolist (node (cdr tree))
+            (add-tree tree-arena node))
+          (add-node tree-arena tree))
+        (add-node tree-arena tree))))
+
+(defmethod map-subtrees ((tree-arena tree-arena) fun)
+  "Iterate over all the subtrees, with a function taking its id and the subtree."
+  (with-accessors ((trees ta-trees)
+                   (ids ta-ids)
+                   (last-index ta-last-index))
+      tree-arena
+    (dotimes (idx (+ 1 last-index))
+      (apply fun idx  (list (aref ids idx))))))
+
+(defun tree-height (tree)
+  "Return the height of a TREE."
+  (if (listp tree)
+      (let ((sub-heights (mapcar 'tree-height (cdr tree) )))
+        (+ 1 (reduce #'max sub-heights)))
+      0 ;; leaf has height 0
+      ))
+
+(defmethod subtrees-by-height ((tree-arena tree-arena))
+  "Return (HEIGHT IDX SUBTREE) for each subtree in a list."
+  (with-accessors ((trees ta-trees)
+                   (ids ta-ids)
+                   (last-index ta-last-index))
+      tree-arena
+    (let (all-trees)
+      (map-subtrees tree-arena
+                    (lambda (idx tree)
+                      (push (list (tree-height tree) idx tree) all-trees)))
+      (let ((sorted (sort all-trees #'< :key #'car)))
+        (format t "subtrees-by-height:all-trees: ~a~%" sorted)
+        sorted
+        )
+      )))
+
+
+(defun test-tree-arena ()
+  (let ((ta (make-instance 'tree-arena)))
+    (pretty-print-tree-arena ta)
+    (add-tree ta (eg-3.1-p1))
+    (add-tree ta (eg-3.1-p2))
+    (pretty-print-tree-arena ta)
+    (map-subtrees ta
+                  (lambda (idx tree)
+                    (format t "idx tree: ~a,~a~%" idx tree)))
+    (terpri)
+    (subtrees-by-height ta)
+    ))
+
+;; ---------------------------------------------------------------------
+;; Tree Arena End
+;; ---------------------------------------------------------------------
+
+;; p75
+;; - Definition 4.2 ::
+;;   (1) if a is a nullary symbol, then
+;;        Match(a) = {a,v} if a is in PF
+;;                   {v} otherwise
+;;
+;;   (2) if a is q-ary, a>0 then
+;;         Match(a(t1, .. tq)) = {v} ∪ { p' | p' has root a and is in PF, and for
+;;                                            1 ≤ j ≤ q, son_j(p) is in Match(t_j)}
+
+(defclass match-set ()
+  ((%alphabet :initarg :alphabet :accessor pf-alphabet)
+   (%pf :initarg :pf :initform '() :accessor pf)
+   ))
+
+(defmethod add-match ((match-set match-set) symbol)
+  (with-accessors ((alphabet pf-alphabet)
+                   (pf pf))
+      match-set
+    (let ((arity (cdr (assoc symbol alphabet))))
+      (format t "add-match:arity: ~a~%" arity)
+      (if (eq arity 0)
+          (progn
+            ;; nullary
+            (if (member symbol pf)
+                (progn
+                  (format t "add-match:symbol ~a in pf ~a~%" symbol pf)
+                  (pushnew (list symbol :v) pf :test 'equal)
+                  )
+                (progn
+                  (pushnew (list :v) pf :test 'equal)
+                  (format t "add-match:symbol ~a not in pf ~a~%" symbol pf))
+                )
+            )
+          (progn
+            ;; Not nullary
+            )
+        ))))
+
+(defmethod make-pf ((match-set match-set) pattern-trees)
+  (with-accessors ((alphabet pf-alphabet)
+                   (pf pf))
+      match-set
+    ;; First process all the nullary symbols in the trees
+    (dolist (symbol-assoc alphabet)
+      (let ((symbol (car symbol-assoc))
+            (arity (cdr symbol-assoc)))
+        (format t "make-pf:symbol-assoc ~a~%" symbol-assoc)
+        (format t "make-pf:symbol ~a~%" symbol)
+        (format t "make-pf:arity ~a~%" arity)
+        (if (eq arity 0)
+            (add-match match-set symbol))
+        ))
+    ))
+
+(defun test-match-set ()
+  (let ((pf (make-instance 'match-set :alphabet (eg-3.1-ranked-alphabet))))
+  (make-pf pf (list (eg-3.1-p1) (eg-3.1-p2)))))
+
+;; Algorithm A, p80
+;;   Input: Simple pattern forest F
+;;   Output: Subsumption graph Gb_S for F
+;;   Method:
+;;   1. List the trees in PF by increasing height.
+;;   2. Initialise Gb_S to the graph with vertices PF and no edges
+;;   3. For each p = a(p1, .., pm), m ≥ 0, of height h, by increasing order of height, do
+;;   4.   For each p' in PF of height ≤ h do
+;;   5.     If p' = v or
+;;             p' = a(p1', .., pm') where,
+;;                for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
+;;          then
+;;   6.        Add p -> p' to Gb_S
+
+;; Algorithm A requires
+;;   O(patsize^2 x rank) time
+;;   O(patsize^2) space
