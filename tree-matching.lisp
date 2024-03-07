@@ -1088,23 +1088,29 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                       (push (list (tree-height tree) idx tree) all-trees)))
       (let ((sorted (sort all-trees #'< :key #'car)))
         (format t "subtrees-by-height:all-trees: ~a~%" sorted)
-        sorted
-        )
-      )))
+        sorted))))
 
+(defmethod tree-id ((tree-arena tree-arena) tree)
+  "Return the arena index of the given TREE, or NIL if not found."
+  (with-accessors ((ids ta-ids))
+      tree-arena
+    (position tree ids :test 'equal)))
 
 (defun test-tree-arena ()
   (let ((ta (make-instance 'tree-arena)))
+    (let ((p1 (eg-3.1-p1))
+          (p2 (eg-3.1-p2)))
     (pretty-print-tree-arena ta)
-    (add-tree ta (eg-3.1-p1))
-    (add-tree ta (eg-3.1-p2))
+    (add-tree ta p1)
+    (add-tree ta p2)
     (pretty-print-tree-arena ta)
     (map-subtrees ta
                   (lambda (idx tree)
                     (format t "idx tree: ~a,~a~%" idx tree)))
     (terpri)
     (subtrees-by-height ta)
-    ))
+    (terpri)
+    (tree-id ta p1))))
 
 ;; ---------------------------------------------------------------------
 ;; Tree Arena End
@@ -1169,6 +1175,36 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
   (let ((pf (make-instance 'match-set :alphabet (eg-3.1-ranked-alphabet))))
   (make-pf pf (list (eg-3.1-p1) (eg-3.1-p2)))))
 
+;; p80
+;; To construct Gb_S observe that for distinct patterns p, p',
+;; (1) If p > p', then height(p) ≥ height(p')
+;; (2) Let p = a(p1, .., pm). Then p > p' iff either p' = v or
+;;     p' = a(p1', .., pm'), where pj ≥ pj' for 1 ≤ j ≤ m
+
+(defun subsumes-p (ta edges p p-prime)
+  ;; First check if m is the same for both trees
+  (if (and (listp p)
+           (listp p-prime)
+           (eq (length p) (length p-prime)))
+      (progn
+        ;; EDGES is a mapping of nodes in Gb_S that subsume each other.
+        (format t "subsumes-p: edges ~a~%" edges)
+        (format t "subsumes-p: p ~a~%" p)
+        (format t "subsumes-p: p-prime ~a~%" p-prime)
+        (mapcar
+         (lambda (pj pj-prime)
+           ;; Does pj > pj'? i.e. there is an edge from p to p' in EDGES
+           (let ((pj-idx (tree-id ta pj))
+                 (pj-prime-idx (tree-id ta pj-prime)))
+             (format t "subsumes-p: pj ~a~%" pj)
+             (format t "subsumes-p: pj-idx ~a~%~%" pj-idx)
+             (format t "subsumes-p: pj-prime ~a~%" pj-prime)
+             (format t "subsumes-p: pj-prime-idx ~a~%" pj-prime-idx)
+             ))
+         p p-prime)
+        )
+      nil))
+
 ;; Algorithm A, p80
 ;;   Input: Simple pattern forest F
 ;;   Output: Subsumption graph Gb_S for F
@@ -1214,7 +1250,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                   (tree-p-prime (caddr subtree-item)))
               ;; (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
               (if (<  height-p-prime height-p)
-                  (let ((is-in-gb-s nil))
+                  (let ((is-in-gb-s (subsumes-p ta edges tree-p tree-p-prime)))
                     (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
                     ;; 5. If p' = v or
                     ;;       p' = a(p1', .., pm') where,
@@ -1231,7 +1267,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
           (terpri)
         (format t "alg-a:gb-s ~a~%" gb-s)
         (format t "alg-a:edges ~a~%" edges)
-          )))))
+          ))))
 
 (defun test-algorithm-a ()
   (algorithm-a (list (eg-3.1-p1) (eg-3.1-p2))))
