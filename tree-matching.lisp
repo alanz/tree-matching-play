@@ -1043,7 +1043,8 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (format t "add-node:node=~a~%" node)
     (let ((last-index (vector-push-extend node ids)))
       (format t "add-node:last-index=~a~%" last-index)
-      (setf (ta-last-index tree-arena) last-index))))
+      (setf (ta-last-index tree-arena) last-index)
+      last-index)))
 
 (defmethod add-tree ((tree-arena tree-arena) tree)
   (with-accessors ((trees ta-trees)
@@ -1054,9 +1055,14 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (if (listp tree)
         (progn
           ;; For a tree, do the subtrees then the root
-          (dolist (node (cdr tree))
-            (add-tree tree-arena node))
-          (add-node tree-arena tree))
+          (let ((children (mapcar (lambda (node)
+                                    (cons node (add-tree tree-arena node)))
+                                  (cdr tree))))
+            (format t "add-tree:children ~a~%" children)
+            (format t "add-tree:tree ~a~%"  tree)
+            (format t "add-tree:tree' ~a~%"  (cons (car tree) children))
+          (add-node tree-arena (cons (car tree) children))))
+          ;; (add-node tree-arena tree)))
         (add-node tree-arena tree))))
 
 (defmethod map-subtrees ((tree-arena tree-arena) fun)
@@ -1068,13 +1074,33 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (dotimes (idx (+ 1 last-index))
       (apply fun idx  (list (aref ids idx))))))
 
+(defun leafp (node)
+  "T for a SYMBOL or dotted pair of two symbols."
+  (or (not (listp node))
+      (and (not (listp (car node)))
+           (not (null (cdr node)))
+           (not (listp (cdr node))))))
+
+(defun subtreep (node)
+  "T for a dotted pair of a tree and its index."
+  (and (listp (car node))
+       (not (null (cdr node)))
+       (not (listp (cdr node)))))
+
 (defun tree-height (tree)
   "Return the height of a TREE."
-  (if (listp tree)
-      (let ((sub-heights (mapcar 'tree-height (cdr tree) )))
-        (+ 1 (reduce #'max sub-heights)))
+  (format t "tree-height:tree ~a~%" tree)
+  (if (leafp tree)
       0 ;; leaf has height 0
-      ))
+      (progn
+        (format t "tree-height:tree ~a~%" tree)
+        ;; We can either load the actual tree at the index, or just
+        ;; use the first part of the dotted pair
+        (let ((rest (if (subtreep tree)
+                        (car tree)
+                        (cdr tree))))
+          (let ((sub-heights (mapcar 'tree-height rest )))
+            (+ 1 (reduce #'max sub-heights)))))))
 
 (defmethod subtrees-by-height ((tree-arena tree-arena))
   "Return (HEIGHT IDX SUBTREE) for each subtree in a list."
@@ -1094,23 +1120,26 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
   "Return the arena index of the given TREE, or NIL if not found."
   (with-accessors ((ids ta-ids))
       tree-arena
-    (position tree ids :test 'equal)))
+    ;; We MUST test with EQ, to make sure we return the specific item
+    ;; we added.
+    ;; TODO: what about symbols like :v?
+    (position tree ids :test 'eq)))
 
 (defun test-tree-arena ()
   (let ((ta (make-instance 'tree-arena)))
     (let ((p1 (eg-3.1-p1))
           (p2 (eg-3.1-p2)))
-    (pretty-print-tree-arena ta)
-    (add-tree ta p1)
-    (add-tree ta p2)
-    (pretty-print-tree-arena ta)
-    (map-subtrees ta
-                  (lambda (idx tree)
-                    (format t "idx tree: ~a,~a~%" idx tree)))
-    (terpri)
-    (subtrees-by-height ta)
-    (terpri)
-    (tree-id ta p1))))
+      (pretty-print-tree-arena ta)
+      (add-tree ta p1)
+      (add-tree ta p2)
+      (pretty-print-tree-arena ta)
+      (map-subtrees ta
+                    (lambda (idx tree)
+                      (format t "idx tree: ~a, ~a~%" idx tree)))
+      (terpri)
+      (subtrees-by-height ta)
+      (terpri)
+      (tree-id ta p1))))
 
 ;; ---------------------------------------------------------------------
 ;; Tree Arena End
@@ -1178,32 +1207,42 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;; p80
 ;; To construct Gb_S observe that for distinct patterns p, p',
 ;; (1) If p > p', then height(p) ≥ height(p')
-;; (2) Let p = a(p1, .., pm). Then p > p' iff either p' = v or
-;;     p' = a(p1', .., pm'), where pj ≥ pj' for 1 ≤ j ≤ m
+;; (2) Let p = a(p1 , .., pm ). Then p > p' iff either p' = v or
+;;        p' = a(p1', .., pm'), where pj ≥ pj' for 1 ≤ j ≤ m
 
 (defun subsumes-p (ta edges p p-prime)
+  ;; 5. If p' = v or
+  ;;       p' = a(p1', .., pm') where,
+  ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
+  (format t "subsumes-p:p        ~a~%" p)
+  (format t "subsumes-p:p-prime: ~a~%" p-prime)
   ;; First check if m is the same for both trees
-  (if (and (listp p)
-           (listp p-prime)
-           (eq (length p) (length p-prime)))
+  (if (eq p-prime :v)
       (progn
-        ;; EDGES is a mapping of nodes in Gb_S that subsume each other.
-        (format t "subsumes-p: edges ~a~%" edges)
-        (format t "subsumes-p: p ~a~%" p)
-        (format t "subsumes-p: p-prime ~a~%" p-prime)
-        (mapcar
-         (lambda (pj pj-prime)
-           ;; Does pj > pj'? i.e. there is an edge from p to p' in EDGES
-           (let ((pj-idx (tree-id ta pj))
-                 (pj-prime-idx (tree-id ta pj-prime)))
-             (format t "subsumes-p: pj ~a~%" pj)
-             (format t "subsumes-p: pj-idx ~a~%~%" pj-idx)
-             (format t "subsumes-p: pj-prime ~a~%" pj-prime)
-             (format t "subsumes-p: pj-prime-idx ~a~%" pj-prime-idx)
-             ))
-         p p-prime)
-        )
-      nil))
+        (format t "subsumes-p:got :v~%")
+        t)
+      (if (and (listp p)
+               (listp p-prime)
+               ;; (eq (length p) (length p-prime))
+               )
+          (progn
+            ;; EDGES is a mapping of nodes in Gb_S that subsume each other.
+            (format t "subsumes-p: edges ~a~%" edges)
+            (mapcar
+             (lambda (pj pj-prime)
+               ;; Does pj > pj'? i.e. there is an edge from p to p' in EDGES
+               (let ((pj-idx (tree-id ta pj))
+                     (pj-prime-idx (tree-id ta pj-prime)))
+                 (format t "subsumes-p: pj ~a~%" pj)
+                 (format t "subsumes-p: pj-idx ~a~%~%" pj-idx)
+                 (format t "subsumes-p: pj-prime ~a~%" pj-prime)
+                 (format t "subsumes-p: pj-prime-idx ~a~%" pj-prime-idx)
+                 ))
+             p p-prime)
+            )
+          (progn
+            (format t "subsumes-p:nope~%")
+            nil))))
 
 ;; Algorithm A, p80
 ;;   Input: Simple pattern forest F
@@ -1230,6 +1269,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
       (add-tree ta tree))
     (pretty-print-tree-arena ta)
     (terpri)
+    (format t "--------------------------------------~%")
     (let ((subtrees-by-height (subtrees-by-height ta))
           gb-s
           edges)
@@ -1248,15 +1288,14 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
             (let ((height-p-prime (car subtree-item))
                   (idx-p-prime (cadr subtree-item))
                   (tree-p-prime (caddr subtree-item)))
-              ;; (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
+              (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
               (if (<  height-p-prime height-p)
                   (let ((is-in-gb-s (subsumes-p ta edges tree-p tree-p-prime)))
-                    (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
+                    ;; (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
                     ;; 5. If p' = v or
                     ;;       p' = a(p1', .., pm') where,
                     ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
-                    (if (or (eq tree-p-prime :v)
-                            is-in-gb-s)
+                    (if is-in-gb-s
                         (progn
                           (format t "alg-a:p' ~a~%" "eq")
                           ;; 6. Add p -> p' to Gb_S
