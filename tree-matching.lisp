@@ -925,7 +925,8 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
          (subsets (set-of-subtrees tree))
          (gamma (pushnew (list :S) subsets :test 'equal))
          (q_initial (list 0))
-         (q_final (list 1)))
+         ;; (q_final (list 1))
+         )
     (format T "alg-2-1:gamma ~a~%" gamma)
     ;; 2 For each x ∈ Σ,let q_I T^φ(x) x −→Mx  q_I T, where T ={S}
     ;; For simplicity, in the rest of the text, we use the notation
@@ -1125,6 +1126,12 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     ;; TODO: what about symbols like :v?
     (position tree ids :test 'eq)))
 
+(defmethod get-tree-by-id ((tree-arena tree-arena) idx)
+  "Return the tree at the given arena IDX."
+  (with-accessors ((ids ta-ids))
+      tree-arena
+    (aref ids idx)))
+
 (defun test-tree-arena ()
   (let ((ta (make-instance 'tree-arena)))
     (let ((p1 (eg-3.1-p1))
@@ -1210,7 +1217,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;; (2) Let p = a(p1 , .., pm ). Then p > p' iff either p' = v or
 ;;        p' = a(p1', .., pm'), where pj ≥ pj' for 1 ≤ j ≤ m
 
-(defun subsumes-p (ta edges p p-prime)
+(defun subsumes-p (edges p p-prime)
   ;; 5. If p' = v or
   ;;       p' = a(p1', .., pm') where,
   ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
@@ -1223,26 +1230,43 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
         t)
       (if (and (listp p)
                (listp p-prime)
-               ;; (eq (length p) (length p-prime))
+               (eq (length p) (length p-prime))
                )
           (progn
             ;; EDGES is a mapping of nodes in Gb_S that subsume each other.
             (format t "subsumes-p: edges ~a~%" edges)
-            (mapcar
-             (lambda (pj pj-prime)
-               ;; Does pj > pj'? i.e. there is an edge from p to p' in EDGES
-               (let ((pj-idx (tree-id ta pj))
-                     (pj-prime-idx (tree-id ta pj-prime)))
-                 (format t "subsumes-p: pj ~a~%" pj)
-                 (format t "subsumes-p: pj-idx ~a~%~%" pj-idx)
-                 (format t "subsumes-p: pj-prime ~a~%" pj-prime)
-                 (format t "subsumes-p: pj-prime-idx ~a~%" pj-prime-idx)
-                 ))
-             p p-prime)
-            )
-          (progn
-            (format t "subsumes-p:nope~%")
-            nil))))
+            (let* ((subtrees
+                     (mapcar
+                      (lambda (pj pj-prime)
+                        ;; Does pj > pj'? i.e. there is an edge from p to p' in EDGES
+                        (let ((pj-tree (car pj))
+                              (pj-prime-tree (car pj-prime)))
+                          (format t "subsumes-p: pj-tree ~a~%" pj-tree)
+                          (format t "subsumes-p: pj-prime-tree ~a~%" pj-prime-tree)
+                          (progn
+                            (format t "subsumes-p:trees ~a -> ~a~%" pj-tree pj-prime-tree )
+                            (if (or (eq pj-prime-tree :v)
+                                    (member (cons pj-tree pj-prime-tree) edges :test 'equal))
+                                (progn
+                                  (format t "subsumes-p: member of list~%")
+                                  t)
+                                nil))))
+                      (cdr p) (cdr p-prime)))
+                   (valid (every (lambda (r) r) subtrees)))
+
+              (format t "subsumes-p:subtrees ~a~%" subtrees)
+              (format t "subsumes-p:valid ~a~%~%" valid)
+              valid
+              ))
+            (progn
+              (format t "subsumes-p:nope~%")
+              nil))))
+
+(defun unindex-tree (tree)
+  (if (listp tree)
+      (cons (car tree)
+            (mapcar #'car (cdr tree)))
+      tree))
 
 ;; Algorithm A, p80
 ;;   Input: Simple pattern forest F
@@ -1273,40 +1297,83 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (let ((subtrees-by-height (subtrees-by-height ta))
           gb-s
           edges)
+      (format t "alg-a:subtrees-by-height: ~a ~%~%" subtrees-by-height)
       ;; 2. Initialise Gb_S to the graph with vertices PF and no edges
       (dolist (subtree-item subtrees-by-height)
         (let ((idx (cadr subtree-item)))
           (push idx gb-s)))
+
       ;; 3. For each p = a(p1, .., pm), m ≥ 0, of height h, by increasing order of height, do
       (dolist (subtree-item subtrees-by-height)
         (let ((height-p (car subtree-item))
               (idx-p (cadr subtree-item))
               (tree-p (caddr subtree-item)))
           (format t "alg-a:p: ~a ~a ~a~%" height-p idx-p tree-p)
+
           ;; 4.   For each p' in PF of height ≤ h do
           (dolist (subtree-item subtrees-by-height)
             (let ((height-p-prime (car subtree-item))
                   (idx-p-prime (cadr subtree-item))
                   (tree-p-prime (caddr subtree-item)))
               (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
-              (if (<  height-p-prime height-p)
-                  (let ((is-in-gb-s (subsumes-p ta edges tree-p tree-p-prime)))
+              (format t "alg-a:p'-uidx ~a ~%" (unindex-tree tree-p-prime))
+              (if (<=  height-p-prime height-p)
+                  (let ((is-in-gb-s (subsumes-p edges tree-p tree-p-prime)))
                     ;; (format t "alg-a:p' ~a ~a ~a~%" height-p-prime idx-p-prime tree-p-prime)
                     ;; 5. If p' = v or
                     ;;       p' = a(p1', .., pm') where,
                     ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
                     (if is-in-gb-s
-                        (progn
-                          (format t "alg-a:p' ~a~%" "eq")
+                        (let ((from (unindex-tree tree-p))
+                              (to (unindex-tree tree-p-prime)))
                           ;; 6. Add p -> p' to Gb_S
-                          (push (list idx-p idx-p-prime) edges))
-                        )
-                    )))
-              ))
+                          (format t "alg-a:adding edge ~a -> ~a~%"  from to )
+                          (if (not (equal from to))
+                              (pushnew (cons from to) edges :test 'equal)))
+                        ))))))
           (terpri)
         (format t "alg-a:gb-s ~a~%" gb-s)
         (format t "alg-a:edges ~a~%" edges)
-          ))))
+        (pretty-gb-s edges)))))
+
+(defun pretty-gb-s (edges &optional (stream t))
+  (format stream "Gb_S~%")
+  (dolist (edge edges)
+    (format stream "Edge: ~a -> ~a~%" (car edge) (cdr edge)))
+  (terpri stream))
 
 (defun test-algorithm-a ()
   (algorithm-a (list (eg-3.1-p1) (eg-3.1-p2))))
+
+;; Gb_S
+;;
+;; We need
+;; (A (A V V) B) -> (A V V)  [ 4 -> 2 ]
+;; (A B V)       -> (A V V)  [ 7 -> 2 ]
+;; (A V V)       -> V        [ 2 -> (6,1,0) ]
+;; B             -> V
+
+
+;; subtrees-by-height
+;; (
+;;  (0 6 V)
+;;  (0 5 B)
+;;  (0 3 B)
+;;  (0 1 V)
+;;  (0 0 V)
+;;  (1 7 (A (B . 5) (V . 6)))
+;;  (1 2 (A (V . 0) (V . 1)))
+;;  (2 4 (A ((A V V) . 2) (B . 3)))
+;;  )
+
+;; Gb_S
+;; Edge: (A (A V V) B) -> (A V V)
+;; Edge: (A B V) -> (A V V)
+;; Edge: B -> V
+
+;; Edge: (A V V) -> V
+
+;; Edge: (A (A V V) B) -> V
+;; Edge: (A V V) -> (A V V)
+;; Edge: (A B V) -> V
+;; Edge: V -> V
