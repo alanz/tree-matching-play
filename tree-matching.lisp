@@ -1225,7 +1225,13 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
       gb-s
     (pushnew from-node nodes :test 'equal)
     (pushnew to-node nodes :test 'equal)
-    (pushnew (cons from-node to-node) edges :test 'equal)))
+    (pushnew (list from-node to-node) edges :test 'equal)))
+
+(defmethod has-edge-p ((gb-s gb-s) from-node to-node)
+  (with-accessors ((nodes gb-s-nodes)
+                   (edges gb-s-edges))
+      gb-s
+    (member (list from-node to-node) edges :test 'equal)))
 
 ;; ---------------------------------------------------------------------
 
@@ -1239,7 +1245,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 (defun make-edge (from to)
   (list from to))
 
-(defun subsumes-p (edges p p-prime)
+(defun subsumes-p (gb-s p p-prime)
   ;; 5. If p' = v or
   ;;       p' = a(p1', .., pm') where,
   ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
@@ -1260,7 +1266,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                               (pj-prime-tree (car pj-prime)))
                           (progn
                             (if (or (eq pj-prime-tree :v)
-                                    (member (make-edge pj-tree pj-prime-tree) edges :test 'equal))
+                                    (has-edge-p gb-s pj-tree pj-prime-tree))
                                 t
                                 nil))))
                       (cdr p) (cdr p-prime)))
@@ -1269,6 +1275,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
             nil)))
 
 (defun unindex-tree (tree)
+  "Remove arena id from the TREE."
   (if (listp tree)
       (cons (car tree)
             (mapcar #'car (cdr tree)))
@@ -1301,12 +1308,11 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (terpri)
     (format t "--------------------------------------~%")
     (let ((subtrees-by-height (subtrees-by-height ta))
-          gb-s
-          edges)
+          (gb-s (new-gb-s)))
       ;; 2. Initialise Gb_S to the graph with vertices PF and no edges
-      (dolist (subtree-item subtrees-by-height)
-        (let ((idx (cadr subtree-item)))
-          (push idx gb-s)))
+      ;; (dolist (subtree-item subtrees-by-height)
+      ;;   (let ((idx (cadr subtree-item)))
+      ;;     (push idx gb-s)))
 
       ;; 3. For each p = a(p1, .., pm), m ≥ 0, of height h, by increasing order of height, do
       (dolist (subtree-item subtrees-by-height)
@@ -1318,7 +1324,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
             (let ((height-p-prime (car subtree-item))
                   (tree-p-prime (caddr subtree-item)))
               (if (<=  height-p-prime height-p)
-                  (let ((is-in-gb-s (subsumes-p edges tree-p tree-p-prime)))
+                  (let ((is-in-gb-s (subsumes-p gb-s tree-p tree-p-prime)))
                     ;; 5. If p' = v or
                     ;;       p' = a(p1', .., pm') where,
                     ;;          for 1 ≤ j ≤ m, pi -> pi' is in Gb_S
@@ -1327,11 +1333,11 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                               (to (unindex-tree tree-p-prime)))
                           ;; 6. Add p -> p' to Gb_S
                           (if (not (equal from to))
-                              (pushnew (make-edge from to) edges :test 'equal)))
+                              (add-edge gb-s from to)))
                         )))))))
       (terpri)
-      (pretty-gb-s edges)
-      edges)))
+      (pretty-print-gb-s gb-s)
+      gb-s)))
 
 (defun pretty-gb-s (edges &optional (stream t))
   (format stream "Gb_S~%")
@@ -1340,7 +1346,15 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
   (terpri stream))
 
 (defun test-algorithm-a ()
-  (algorithm-a (list (eg-3.1-p1) (eg-3.1-p2))))
+  (assert
+   (equal
+    (gb-s-edges (algorithm-a (list (eg-3.1-p1) (eg-3.1-p2))))
+    '(((:A (:A :V :V) :B)   (:A :V :V))
+      ((:A (:A :V :V) :B)   :V)
+      ((:A :V :V)           :V)
+      ((:A :B :V)           (:A :V :V))
+      ((:A :B :V)           :V)
+      (:B                   :V)))))
 
 ;; Gb_S
 ;;
@@ -1491,7 +1505,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (algorithm-b gb-s trees)))
 
 ;; We are looking for
-;;
+;; a(t1,t2):
 ;; |-------------+--------+-------------+--------+--------+-------------|
 ;; |             |     Right subtree match                              |
 ;; |-------------+--------+-------------+--------+--------+-------------|
@@ -1505,6 +1519,8 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;; | a(b,v)      | a(v,v) | a(a(v,v),b) | a(v,v) | a(v,v) | a(v,v)      |
 ;; | a(a(v,v),b) | a(v,v) | a(a(v,v),b) | a(v,v) | a(v,v) | a(v,v)      |
 ;; |-------------+--------+-------------+--------+--------+-------------|
+;; b: 2 {b,v}
+;; c: 1 {v}
 
 ;; It comes from
 ;;
