@@ -1202,6 +1202,34 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
   (let ((pf (make-instance 'match-set :alphabet (eg-3.1-ranked-alphabet))))
   (make-pf pf (list (eg-3.1-p1) (eg-3.1-p2)))))
 
+;; ---------------------------------------------------------------------
+
+(defclass gb-s ()
+  ((%nodes :initarg :nodes :initform '() :accessor gb-s-nodes)
+   (%edges :initarg :edges  :initform '() :accessor gb-s-edges)))
+
+(defun pretty-print-gb-s (gb-s &optional (stream t))
+  (format stream "Gb_S~%")
+  (format stream "Gb_S-nodes:~a~%" (reverse (gb-s-nodes gb-s)))
+  (format stream "Gb_S-edges:~%")
+  (mapc (lambda (edge)
+             (format stream "   ~S~%" edge))
+           (gb-s-edges gb-s)))
+
+(defun new-gb-s ()
+  (make-instance 'gb-s ))
+
+(defmethod add-edge ((gb-s gb-s) from-node to-node)
+  (with-accessors ((nodes gb-s-nodes)
+                   (edges gb-s-edges))
+      gb-s
+    (pushnew from-node nodes :test 'equal)
+    (pushnew to-node nodes :test 'equal)
+    (pushnew (cons from-node to-node) edges :test 'equal)))
+
+;; ---------------------------------------------------------------------
+
+
 ;; p80
 ;; To construct Gb_S observe that for distinct patterns p, p',
 ;; (1) If p > p', then height(p) ≥ height(p')
@@ -1380,32 +1408,23 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
     (let ((edges edges-in) ;; So we can mutate it
           (l nil)
           (s (no-incoming-edges edges-in)))
-      (format t "ts:s=~a~%" s)
       (do ()
           ((null s) nil)
         ;; remove a node n from S
         (let ((n (car s)))
           (setf s (cdr s))
-          (format t "ts:n=~a~%" n)
           ;; add n to L
           (pushnew n l :test 'equal)
           ;; for each node m with an edge e from n to m do
           (dolist (m (remove-if-not
                       (lambda (node) (member node edges :key #'cdr))
                       nodes))
-            (format t "ts:m=~a~%" m)
             ;; remove edge e from the graph
             (setf edges (remove (cons n m) edges :test 'equal))
-            (format t "ts:new edges=~a~%" edges)
             ;; if m has no other incoming edges then
             (if (null (remove-if-not (lambda (edge) (equal m (cdr edge))) edges))
-                (progn
-                  (format t "ts:no other incoming edges for ~a~%" m)
                   ;; insert m into S
-                  (pushnew m s :test 'equal)
-                ))
-            )
-          ))
+                  (pushnew m s :test 'equal)))))
       (if (null edges)
           (reverse l)
           (error "Expected empty edges, not a DAG: still have ~a" edges))
