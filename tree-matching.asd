@@ -7,4 +7,5 @@
                #:trivia
                )
   :components ((:file "tree-matching")
+               (:file "trie-map")
                ))
