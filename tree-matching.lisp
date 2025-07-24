@@ -1337,13 +1337,8 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
                         )))))))
       (terpri)
       (pretty-print-gb-s gb-s)
+      (format t "alg-a:ending~%")
       gb-s)))
-
-(defun pretty-gb-s (edges &optional (stream t))
-  (format stream "Gb_S~%")
-  (dolist (edge edges)
-    (format stream "Edge: ~a -> ~a~%" (car edge) (cdr edge)))
-  (terpri stream))
 
 (defun test-algorithm-a ()
   (assert
@@ -1413,15 +1408,18 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;;     return L   (a topologically sorted order)
 
 (defun topological-sort (nodes edges-in)
+  (format t "topo-sort:nodes ~a~%" nodes)
+  (format t "topo-sort:edges-in ~a~%" edges-in)
   (flet ((no-incoming-edges (edges)
-           ;; In EDGES, a list of (FROM . TO), find all nodes that
+           ;; In EDGES, a list of (list FROM TO), find all nodes that
            ;; appear as FROM but never as TO
            (remove-if (lambda (node)
-                        (member node edges :key #'cdr))
+                        (member node edges :key #'cadr :test 'equal))
                       nodes)))
     (let ((edges edges-in) ;; So we can mutate it
           (l nil)
           (s (no-incoming-edges edges-in)))
+      (format t "topo-sort: s= ~a~%" s)
       (do ()
           ((null s) nil)
         ;; remove a node n from S
@@ -1431,12 +1429,12 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
           (pushnew n l :test 'equal)
           ;; for each node m with an edge e from n to m do
           (dolist (m (remove-if-not
-                      (lambda (node) (member node edges :key #'cdr))
+                      (lambda (node) (member node edges :key #'cadr))
                       nodes))
             ;; remove edge e from the graph
-            (setf edges (remove (cons n m) edges :test 'equal))
+            (setf edges (remove (list n m) edges :test 'equal))
             ;; if m has no other incoming edges then
-            (if (null (remove-if-not (lambda (edge) (equal m (cdr edge))) edges))
+            (if (null (remove-if-not (lambda (edge) (equal m (cadr edge))) edges))
                   ;; insert m into S
                   (pushnew m s :test 'equal)))))
       (if (null edges)
@@ -1444,13 +1442,29 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
           (error "Expected empty edges, not a DAG: still have ~a" edges))
     )))
 
+;; nodes: ((A (A V V) B)
+;;         (A V V)
+;;         (A B V)
+;;         V
+;;         B)
+
+;; topo-sort:edges-in
+;; (((A (A V V) B)        (A V V))
+;;  ((A (A V V) B)        V)
+;;  ((A V V)              V)
+;;  ((A B V)              (A V V))
+;;  ((A B V)              V)
+;;  (B                    V))
+
+
 (defun test-topological-sort ()
   (let ((nodes (list 2 3 5 7 8 9 10 11))
-        (edges '( (5 . 11)
-                 (11 . 2) (11 . 9) (11 . 10)
-                 (7 . 11) (7 . 8)
-                 (8 . 9)
-                 (3 . 8) (3 . 10))))
+        (edges '(( 5  11)
+                 (11   2) (11  9) (11 10)
+                 ( 7  11) ( 7  8)
+                 ( 8   9)
+                 ( 3   8) ( 3 10))))
+    ;; nodes 3,5,7 have no incoming edges
     (assert
      (equal
       (topological-sort nodes edges)
@@ -1475,20 +1489,23 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 ;; AZ Note: make as single table as a hash map with key a tuple <a, p1', .., pm'>
 (defun algorithm-b (gb-s trees)
   ;; nodes should be part of gb-s
-  (let (nodes)
-    (dolist (edge gb-s)
-      (let ((from (first edge))
-            (to (second edge)))
-        (pushnew from nodes :test 'equal)
-        (pushnew to nodes :test 'equal)))
+  (let* ((nodes (gb-s-nodes gb-s))
+         (edges (gb-s-edges gb-s))
+         (by-subsumption (topological-sort nodes edges)))
+    ;; (dolist (edge gb-s)
+    ;;   (let ((from (first edge))
+    ;;         (to (second edge)))
+    ;;     (pushnew from nodes :test 'equal)
+    ;;     (pushnew to nodes :test 'equal)))
     (format t "alg-b:nodes ~a~%" nodes)
+    (format t "alg-b:by-subsumption ~a~%" by-subsumption)
 
     (let (table-a)
       ;; 2. Initialize all entries in all tables Ta to v
       ;; AZ:I think these can only be the nodes in Gb_S
       ;;    Alternatively, all nodes in the pattern trees
 
-      (dolist (edge gb-s)
+      (dolist (edge (gb-s-edges gb-s))
         (let ((from (first edge))
               (to (second edge)))
           (format t "alg-b:edge ~a -> ~a~%" from to)
@@ -1502,6 +1519,7 @@ The PDA is updated internally. Returns the state if it is accepting, else NIL."
 (defun test-algorithm-b ()
   (let* ((trees (list (eg-3.1-p1) (eg-3.1-p2)))
          (gb-s (algorithm-a trees)))
+    (format t "test-algorithm-b: got trees, gb-s~%")
     (algorithm-b gb-s trees)))
 
 ;; We are looking for
