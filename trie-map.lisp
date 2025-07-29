@@ -80,8 +80,16 @@ Store the result in the MAP."
   ;; (format t "alter-map:old-val1: ~a~%" (gethash key map))
   (setf (gethash key map) (funcall f (gethash key map))))
 
+
 (defun lift-tf (f)
+  "Take a function F which takes an expr-map as an argument and returns
+one, turn it into  TF returning an expr-map."
+  ;; type TF v = Maybe v → Maybe v
+  ;; liftTF :: (ExprMap v → ExprMap v) → TF (ExprMap v)
+  ;; liftTF f Nothing = Just (f emptyEM)
+  ;; liftTF f (Just m) = Just (f m)
   (lambda (em)
+    (declare (type (or null expr-map) em))
     (let ((em2 (if (null em) (empty-em) em)))
       (funcall f em2)
       em2)))
@@ -92,30 +100,33 @@ Store the result in the MAP."
   (with-accessors ((em-var em-var)
                    (em-app em-app))
       expr-map
+    (format t "at-em:expr: ~a~%" expr)
     (format t "at-em:em-var: ~a~%" em-var)
     (format t "at-em:em-app: ~a~%" em-app)
     (pretty-print-expr-map expr-map 0)
     (match expr
       ((list :var v)
 
-       (format t "at-em:processing :var: ~a~%" v)
-       (alter-map tf v em-var))
+       (format t "at-em:processing :var:1: ~a~%" v)
+       (alter-map tf v em-var)
+       (format t "at-em:processing :var:2: ~a~%" em-var)
+       )
       ((list :app e1 e2)
        ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
        (format t "at-em:processing :app: ~a ~a~%" e1 e2)
        ;; ------------------------------
        ;; We want the current expr-map to have a new or updated one, indexed by e1.
        ;; This one must have an entry for e2, which is updated by TF.
-       (let* ((em2 (if (null em-app) (empty-em) em-app))
-              (em2-val (at-em e2 tf em2)))
-         (format t "at-em:em-app: ~a~%" em-app)
-         (format t "at-em:em2: ~a~%" em2)
-         (pretty-print-expr-map em2 0)
-         (format t "at-em:em2-val: ~a~%" em2-val)
-         (format t "at-em:app:recursing-----------------------------~%")
-         (setf em-app (at-em e1 tf em2))
-         (format t "at-em:em-app: ~a~%" em-app)
-         ))
+       ;; (let* ((em2 (if (null em-app) (empty-em) em-app))
+       ;;        (em2-val (at-em e2 tf em2)))
+       ;;   (format t "at-em:em-app: ~a~%" em-app)
+       ;;   (format t "at-em:em2: ~a~%" em2)
+       ;;   (pretty-print-expr-map em2 0)
+       ;;   (format t "at-em:em2-val: ~a~%" em2-val)
+       ;;   (format t "at-em:app:recursing-----------------------------~%")
+       ;;   (setf em-app (at-em e1 tf em2))
+       ;;   (format t "at-em:em-app: ~a~%" em-app)
+       ;;   ))
 
        ;; ------------------------------
        ;; (let* ((f2 (lift-tf (lambda (em) (at-em e2 tf em))))
@@ -126,16 +137,24 @@ Store the result in the MAP."
        ;;   (setf em-app (at-em e1 f2 em-app))
        ;;   (pretty-print-expr-map em-app)))
        ;; ------------------------------
-       ;; (let ((em2 (funcall (lift-tf (lambda (em) (at-em e2 tf em))) em-app)))
-       ;;   (format t "at-em:em-app: ~a~%" em-app)
-       ;;   (format t "at-em:em2: ~a~%" em2)
-       ;;   (pretty-print-expr-map em2)
-       ;;   (at-em e1 tf em2)
-       ;;   (format t "at-em:em2:2: ~a~%" em2)
-       ;;   (pretty-print-expr-map em2)
-       ;;   ))
+       ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
+       (let ((em-app2 (if (null em-app) (empty-em) em-app))
+              ;; (em2 (funcall (lift-tf (lambda (em) (at-em e2 tf em))) em-app2))
+              ;; (em2 nil)
+              )
+         (format t "at-em:em-app: ~a~%" em-app)
+         (format t "at-em:em-app2: ~a~%" em-app2)
+         ;; (format t "at-em:em2: ~a~%" em2)
+         ;; (pretty-print-expr-map em2 0)
+         (setf em-app (at-em e1 (lift-tf (lambda (em) (at-em e2 tf em))) em-app2))
+         (format t "at-em:em-app:2: ~a~%" em-app)
+         (pretty-print-expr-map em-app 0)
+         ))
        ;; ------------------------------
       (t (format t "match failed ~%")))
+    (format t "at-em: exiting~%")
+    (pretty-print-expr-map expr-map 0)
+    (format t "at-em: exiting done~%")
     expr-map))
 
 (defmethod insert-em (expr v (expr-map expr-map))
@@ -178,4 +197,7 @@ Store the result in the MAP."
   (insert-em '(:app (:var "x") (:var "y")) 'inserted-val test-em)
   (format t "test-em:--------------------~%")
   (format t "test-em: ~a~%" test-em)
-  (pretty-print-expr-map test-em 0))
+  (pretty-print-expr-map test-em 0)
+  (format t "test-em:lkup--------------------~%")
+  (lk-em '(:app (:var "x") (:var "y")) test-em)
+  )
