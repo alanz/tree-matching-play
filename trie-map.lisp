@@ -25,12 +25,27 @@
    )
   (:documentation "ExprMap v"))
 
+(defun empty-em ()
+  (make-instance 'expr-map))
+
+
+;; ---------------------------------------------------------------------
+
 (defgeneric my-pretty-print (thing &optional (depth) (stream))
   (:documentation "Pretty print."))
 
 (defmethod my-pretty-print ((obj t) &optional (depth 0) (stream t))
   "Default pretty print."
   (format stream "~v,t~a~%" depth obj))
+
+(defmethod my-pretty-print ((hash-table hash-table) &optional (depth 0) (stream t))
+  (format stream "~v,tHASH_MAP:~%" depth)
+  (maphash (lambda (k v)
+             (format stream "~v,t  (~S .~%" depth k)
+             (my-pretty-print v (+ 4 depth) stream)
+             (format stream "~v,t  )~%" depth))
+           hash-table)
+  )
 
 (defmethod my-pretty-print ((expr-map expr-map) &optional (depth 0) (stream t))
   (format stream "~v,tEXPR-MAP:~a~%" depth expr-map)
@@ -47,9 +62,7 @@
         (format stream "~v,t  NIL~%" depth1)))
   )
 
-
-(defun empty-em ()
-  (make-instance 'expr-map))
+;; ---------------------------------------------------------------------
 
 (defvar test-expr '(:app (:var "a") (:var "b")))
 (defvar test-em (empty-em))
@@ -118,38 +131,9 @@ one, turn it into  TF returning an expr-map."
       ((list :app e1 e2)
        ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
        (format t "at-em:processing :app: ~a ~a~%" e1 e2)
-       ;; ------------------------------
-       ;; We want the current expr-map to have a new or updated one, indexed by e1.
-       ;; This one must have an entry for e2, which is updated by TF.
-       ;; (let* ((em2 (if (null em-app) (empty-em) em-app))
-       ;;        (em2-val (at-em e2 tf em2)))
-       ;;   (format t "at-em:em-app: ~a~%" em-app)
-       ;;   (format t "at-em:em2: ~a~%" em2)
-       ;;   (my-pretty-print em2 0)
-       ;;   (format t "at-em:em2-val: ~a~%" em2-val)
-       ;;   (format t "at-em:app:recursing-----------------------------~%")
-       ;;   (setf em-app (at-em e1 tf em2))
-       ;;   (format t "at-em:em-app: ~a~%" em-app)
-       ;;   ))
-
-       ;; ------------------------------
-       ;; (let* ((f2 (lift-tf (lambda (em) (at-em e2 tf em))))
-       ;;        ;; (em2 (at-em e1 f2 em-app)))
-       ;;        (em2 nil))
-       ;;   (format t "at-em:em2: ~a~%" em2)
-       ;;   (my-pretty-print em2)
-       ;;   (setf em-app (at-em e1 f2 em-app))
-       ;;   (my-pretty-print em-app)))
-       ;; ------------------------------
-       ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
-       (let ((em-app2 (if (null em-app) (empty-em) em-app))
-              ;; (em2 (funcall (lift-tf (lambda (em) (at-em e2 tf em))) em-app2))
-              ;; (em2 nil)
-              )
+       (let ((em-app2 (if (null em-app) (empty-em) em-app)))
          (format t "at-em:em-app: ~a~%" em-app)
          (format t "at-em:em-app2: ~a~%" em-app2)
-         ;; (format t "at-em:em2: ~a~%" em2)
-         ;; (my-pretty-print em2 0)
          (setf em-app (at-em e1 (lift-tf (lambda (em) (at-em e2 tf em))) em-app2))
          (format t "at-em:em-app:2: ~a~%" em-app)
          (my-pretty-print em-app 0)
@@ -222,3 +206,155 @@ one, turn it into  TF returning an expr-map."
   (format t "third lookup:~a~%"
           (lk-em '(:app (:app (:var "z1") (:var "z2")) (:var "z3")) test-em))
   )
+
+;; This reaches the end of section 3.3 of the paper.
+
+;; ---------------------------------------------------------------------
+;; Section 3.4 Unions of Maps
+;; P4
+
+;; Via local qwen3:14b 4k context
+(defun hash-table-union (f ht1 ht2)
+  (format t "hash-table-union:ht1: ~a~%" ht1)
+  (my-pretty-print ht1)
+  (format t "hash-table-union:ht2: ~a~%" ht2)
+  (my-pretty-print ht2)
+  (let ((result (make-hash-table :test (hash-table-test ht1))))
+    ;; Copy values from ht1
+    (maphash (lambda (k v) (setf (gethash k result) v)) ht1)
+    ;; Copy values from ht2, using f to merge if key already exists
+    (maphash (lambda (k v)
+               (if (gethash k result)
+                   (setf (gethash k result) (funcall f (gethash k result) v))
+                   (setf (gethash k result) v)))
+             ht2)
+    (format t "hash-table-union:result: ~a~%" result)
+    (my-pretty-print result)
+    result))
+
+(defun union-with-em (f expr-map-1 expr-map-2)
+  "Make a union of EXPR-MAP-1 and EXPR-MAP-2.
+When a key appears on both maps, use the combining function F to combine
+the two corresponding values"
+  ;; unionWithEM :: (v → v → v) → ExprMap v → ExprMap v → ExprMap v
+  ;; When a key appears on both maps, the combining function
+  ;; is used to combine the two corresponding values
+  (with-accessors ((em-var-1 em-var)
+                   (em-app-1 em-app))
+      expr-map-1
+
+    (my-pretty-print em-var-1)
+    (with-accessors ((em-var-2 em-var)
+                     (em-app-2 em-app))
+        expr-map-2
+      (let ((r (empty-em))
+            (em-var-r (hash-table-union f em-var-1 em-var-2))
+            (em-app-r
+              (cond
+                ((null em-app-1) em-app-2)
+                ((null em-app-2) em-app-2)
+                (t (union-with-em f em-app-1 em-app-2)))))
+
+        (format t "union-with-em:em-var-r: ~a~%" em-var-r)
+        (my-pretty-print em-var-r)
+        (format t "union-with-em:em-app-r: ~a~%" em-app-r)
+        (my-pretty-print em-app-r)
+
+        (setf (em-var r) em-var-r)
+        (setf (em-app r) em-app-r)
+        (format t "union-with-em:r: ~a~%" r)
+        (my-pretty-print r)
+        r))))
+
+
+(defun t5 ()
+  (let ((em-1 (empty-em))
+        (em-2 (empty-em)))
+    (insert-em '(:app (:var "x") (:var "y")) 'v1 em-1)
+    (insert-em '(:app (:var "x") (:var "z")) 'v2 em-2)
+    (format t "-------------------------------~%")
+    (format t "em-1: ~a~%" em-1)
+    (my-pretty-print em-1 0)
+    (format t "-------------------------------~%")
+    (format t "em-2: ~a~%" em-2)
+    (my-pretty-print em-2 0)
+    (format t "-------------------------------~%")
+    (let ((r (union-with-em (lambda (v1 v2) v2) em-1 em-2)))
+      (format t "r: ~a~%" r)
+      (my-pretty-print r 0)
+      )))
+
+;; ---------------------------------------------------------------------
+;; Section 3.5 Folds and the empty map
+;; P4 (end)
+
+(defun hash-table-foldr (k z hash-map)
+  "Fold the values in HASH-MAP using the given right-associative binary operator K, with initial value Z.
+This is such that foldr f z == foldr f z . elems."
+;; O(n). Fold the values in the map using the given right-associative binary operator, such that foldr f z == foldr f z . elems.
+;; > foldr k z []     = z
+;; > foldr k z (x:xs) = x `k` foldr f z xs
+  (format t "hash-table-foldr:hash-map: ~a~%" hash-map)
+  (let ((r z))
+    (format t "hash-table-foldr:r0: ~a~%" r)
+    (maphash (lambda (key v)
+               (declare (ignore key))
+               (format t "hash-table-foldr:v: ~a~%" v)
+               (format t "hash-table-foldr:r: ~a~%" r)
+               (setf r (funcall k v r)))
+             hash-map)
+    (format t "hash-table-foldr:r1: ~a~%" r)
+    r))
+
+;; foldrEM :: ∀v. (v → r → r) → r → ExprMap v → r
+;; foldrEM k z (EM { em_var = var, em_app = app })
+;;   = Map.foldr k z1 var
+;;   where
+;;     z1 = foldrEM kapp z (app :: ExprMap (ExprMap v))
+;;     kapp m1 r = foldrEM k r m1
+
+(defun foldr-em (k z expr-map)
+  (format t "foldr-em:expr-map:~a~%" expr-map)
+  (if (null expr-map)
+      (progn
+        (format t "foldr-em:null expr-map~%")
+        z)
+      (with-accessors ((em-var em-var)
+                       (em-app em-app))
+          expr-map
+        (labels ((kapp (m1 r)
+                   (format t "foldr-em:kapp:m1:~a~%" m1)
+                   (format t "foldr-em:kapp:r:~a~%" r)
+                   (foldr-em k r m1)))
+          (let ((z1 (foldr-em #'kapp z em-app)))
+            (format t "foldr-em:z1:~a~%" z1)
+            (hash-table-foldr k z1 em-var))))))
+
+(defun size-em (expr-map)
+  (foldr-em (lambda (v r)
+              (declare (ignore v))
+              (+ r 1))
+            0 expr-map))
+
+(defun elems-em (expr-map)
+  (foldr-em (lambda (v r) (cons v r))
+            nil expr-map))
+
+(defun t6 ()
+  (setf test-em (empty-em))
+  (insert-em '(:app (:var "x") (:var "y")) 'v1 test-em)
+  (insert-em '(:app (:var "z") (:var "y")) 'v2 test-em)
+  (format t "test-em:--------------------~%")
+  (format t "test-em: ~a~%" test-em)
+  (my-pretty-print test-em 0)
+
+  (format t "------------------------------------------~%")
+  (format t "count:~a~%"
+          (foldr-em (lambda (v r)
+                      ;; (declare (ignore b))
+                      (format t "t6:v:~a~%" v)
+                      (format t "t6:r:~a~%" r)
+                      (+ r 1))
+                    0 test-em))
+
+  (format t "elems:~a~%" (elems-em test-em)))
