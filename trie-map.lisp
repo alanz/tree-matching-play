@@ -15,10 +15,18 @@
 ;; type Var = String
 ;; data Expr = App Expr Expr | Lam Var Expr | Var Var
 
+
+;; ---------------------------------------------------------------------
+;; Forward declaration from 3.6
+
+(defclass trie-map ()
+  ()
+  (:documentation "Base class for TrieMap implementations."))
+
 ;; ---------------------------------------------------------------------
 ;; 3.1 interface
 
-(defclass expr-map ()
+(defclass expr-map (trie-map)
   ((%em-var :accessor em-var :initform (make-hash-table :test 'equal))
    ;; For the :app constructor, an expr-map for e1 containing an expr-map for e2
    (%em-app :accessor em-app :initform nil)
@@ -358,3 +366,84 @@ This is such that foldr f z == foldr f z . elems."
                     0 test-em))
 
   (format t "elems:~a~%" (elems-em test-em)))
+
+;; ---------------------------------------------------------------------
+;; Section 3.6 A type class for triemaps
+;; P5
+
+;; class Eq (Key tm) ⇒ TrieMap tm where
+;;   type Key tm :: Type
+;;   emptyTM :: tm a
+;;   lkTM :: Key tm → tm a → Maybe a
+;;   atTM :: Key tm → TF a → tm a → tm a
+;;   foldrTM :: (a → b → b) → tm a → b → b
+;;   unionWithTM :: (a → a → a) → tm a → tm a → tm a
+
+(defclass trie-map ()
+  ()
+  (:documentation "Base class for TrieMap implementations."))
+
+(defgeneric empty-tm (trie-map)
+  (:documentation "Returns an empty TRIE-MAP instance for the given class."))
+
+(defgeneric lk-tm (key trie-map)
+  (:documentation "Looks up KEY in TRIE-MAP. Returns the value or NIL if not found."))
+
+(defgeneric at-tm (key f trie-map)
+  (:documentation "Alter the value at KEY in TRIE-MAP, by applying F to it."))
+
+;; ---------------------------------------------------------------------
+;; Utility functions on TRIE-MAP
+
+;; insertTM :: TrieMap tm ⇒ Key tm → v → tm v → tm v
+;; insertTM k v = atTM k (\_ → Just v)
+
+(defmethod insert-tm (key v (trie-map trie-map))
+  "Insert V as the value for KEY in TM."
+  (at-tm key (lambda (x)
+                (declare (ignore x))
+                v)
+         trie-map))
+
+;; deleteTM :: TrieMap tm ⇒ Key tm → tm v → tm v
+;; deleteTM k = atTM k (\_ → Nothing)
+
+(defmethod delete-tm (key v (trie-map trie-map))
+  "Insert V as the value for KEY in TM."
+  (at-tm key (lambda (x)
+                (declare (ignore x))
+                nil)
+         trie-map))
+
+;; ---------------------------------------------------------------------
+;; trie-map generic methods for expr-map
+
+(defmethod empty-tm ((expr-map expr-map))
+  (empty-em))
+
+(defmethod lk-tm (key (expr-map expr-map))
+  (lk-em key expr-map))
+
+(defmethod at-tm (key f (expr-map expr-map))
+  (at-em key f expr-map))
+
+;; ---------------------------------------------------------------------
+
+(defun t6c ()
+  (let ((test-tm (empty-em)))
+    (insert-tm '(:app (:var "x") (:var "y")) 'v1 test-tm)
+    (insert-tm '(:app (:var "z") (:var "y")) 'v2 test-tm)
+    (format t "test-tm:--------------------~%")
+    (format t "test-tm: ~a~%" test-tm)
+    (my-pretty-print test-tm 0)
+
+    (format t "------------------------------------------~%")
+    (format t "count:~a~%"
+            (foldr-em (lambda (v r)
+                        ;; (declare (ignore b))
+                        (format t "t6:v:~a~%" v)
+                        (format t "t6:r:~a~%" r)
+                        (+ r 1))
+                      0 test-tm))
+
+    (format t "elems:~a~%" (elems-em test-tm))))
