@@ -67,8 +67,7 @@
     (format stream "~v,tEXPR-MAP-em-app:~%" depth1)
     (if (not (null (em-app expr-map)))
         (my-pretty-print (em-app expr-map) (+ 2 depth1))
-        (format stream "~v,t  NIL~%" depth1)))
-  )
+        (format stream "~v,t  NIL~%" depth1))))
 
 ;; ---------------------------------------------------------------------
 
@@ -106,7 +105,7 @@ Store the result in the MAP."
   (setf (gethash key map) (funcall f (gethash key map))))
 
 
-(defun lift-tf (f)
+(defun lift-tf-em (f)
   "Take a function F which takes an expr-map as an argument and returns
 one, turn it into  TF returning an expr-map."
   ;; type TF v = Maybe v → Maybe v
@@ -125,25 +124,15 @@ one, turn it into  TF returning an expr-map."
   (with-accessors ((em-var em-var)
                    (em-app em-app))
       expr-map
-    (format t "at-em:expr: ~a~%" expr)
-    (format t "at-em:em-var: ~a~%" em-var)
-    (format t "at-em:em-app: ~a~%" em-app)
     (my-pretty-print expr-map 0)
     (match expr
       ((list :var v)
-
-       (format t "at-em:processing :var:1: ~a~%" v)
        (alter-map tf v em-var)
-       (format t "at-em:processing :var:2: ~a~%" em-var)
        )
       ((list :app e1 e2)
        ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
-       (format t "at-em:processing :app: ~a ~a~%" e1 e2)
        (let ((em-app2 (if (null em-app) (empty-em) em-app)))
-         (format t "at-em:em-app: ~a~%" em-app)
-         (format t "at-em:em-app2: ~a~%" em-app2)
-         (setf em-app (at-em e1 (lift-tf (lambda (em) (at-em e2 tf em))) em-app2))
-         (format t "at-em:em-app:2: ~a~%" em-app)
+         (setf em-app (at-em e1 (lift-tf-em (lambda (em) (at-em e2 tf em))) em-app2))
          (my-pretty-print em-app 0)
          ))
        ;; ------------------------------
@@ -287,7 +276,10 @@ the two corresponding values"
     (format t "em-2: ~a~%" em-2)
     (my-pretty-print em-2 0)
     (format t "-------------------------------~%")
-    (let ((r (union-with-em (lambda (v1 v2) v2) em-1 em-2)))
+    (let ((r (union-with-em (lambda (v1 v2)
+                              (declare (ignore v1))
+                              v2)
+                            em-1 em-2)))
       (format t "r: ~a~%" r)
       (my-pretty-print r 0)
       )))
@@ -392,8 +384,16 @@ This is such that foldr f z == foldr f z . elems."
 (defgeneric at-tm (key f trie-map)
   (:documentation "Alter the value at KEY in TRIE-MAP, by applying F to it."))
 
+(defgeneric foldr-tm (k z trie-map)
+  (:documentation "Fold over TRIE-MAP, with combining function K and initial value Z."))
+
+(defgeneric lift-tf-tm (f trie-map)
+  (:documentation "Take a function F which takes an TRIE-MAP as an argument and returns
+one, turn it into  TF returning an TRIE-MAP."))
+
 ;; ---------------------------------------------------------------------
 ;; Utility functions on TRIE-MAP
+;; P5
 
 ;; insertTM :: TrieMap tm ⇒ Key tm → v → tm v → tm v
 ;; insertTM k v = atTM k (\_ → Just v)
@@ -427,6 +427,14 @@ This is such that foldr f z == foldr f z . elems."
 (defmethod at-tm (key f (expr-map expr-map))
   (at-em key f expr-map))
 
+;; foldrEM :: ∀v. (v → r → r) → r    → ExprMap v → r
+;; foldrTM ::     (a → r → r) → tm a → r         → r
+;; AZ: I think the latter signature has swapped the initial and item args
+(defmethod foldr-tm (k z (expr-map expr-map))
+  (foldr-em k z expr-map))
+
+;; unionWithTM :: (a → a → a) → tm a → tm a → tm a
+
 ;; ---------------------------------------------------------------------
 
 (defun t6c ()
@@ -447,3 +455,177 @@ This is such that foldr f z == foldr f z . elems."
                       0 test-tm))
 
     (format t "elems:~a~%" (elems-em test-tm))))
+
+;; ---------------------------------------------------------------------
+;; ListMap
+;; P5
+
+;; data ListMap tm v = LM { lm_nil  :: Maybe v
+;;                        , lm_cons :: tm (ListMap tm v) }
+
+(defclass list-map (trie-map)
+  ((%lm-nil :accessor lm-nil :initform nil)
+   (%lm-cons :accessor lm-cons :initform nil)
+   (%empty-contents :accessor lm-empty-contents :initarg :lm-empty-contents)
+   )
+  (:documentation "ListMap tm v"))
+
+(defmethod my-pretty-print ((list-map list-map) &optional (depth 0) (stream t))
+  (format stream "~v,tLIST-MAP:~a~%" depth list-map)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tLIST-MAP-lm-nil:~%" depth1)
+    (format stream "~v,t~a ~%" (+ 1 depth1) (lm-nil list-map))
+    (format stream "~v,tLIST-MAP-lm-cons:~%" depth1)
+    (if (not (null (lm-cons list-map)))
+        (my-pretty-print (lm-cons list-map) (+ 2 depth1))
+        (format stream "~v,t  NIL~%" depth1)))
+  )
+
+;; lkLM :: TrieMap tm ⇒ [ Key tm] → ListMap tm v → Maybe v
+;; lkLM [ ] = lm_nil
+;; lkLM (k : ks) = lm_cons >>> lkTM k >=> lkLM ks
+
+(defmethod lk-lm (key list-map)
+  (with-accessors ((lm-nil lm-nil)
+                   (lm-cons lm-cons))
+      list-map
+    (match key
+      (nil lm-nil)
+      ((cons k ks)
+       (let ((lk (lk-tm key k)))
+         (if (not (null lk))
+             lk
+             (lk-lm key ks)))))))
+
+  ;; infixr 1 >=>
+  ;; -- Kleisli composition
+  ;; (>=>) :: Monad m ⇒ (a → m b) → (b → m c) → a → m c
+
+  ;; infixr 1 >>>
+  ;; -- Forward composition
+  ;; (>>>) :: (a → b) → (b → c) → a → c
+
+  ;; (|>) :: a -> (a->b) -> b     -- Reverse application
+  ;; x |> f = f x
+
+  ;; ----------------------
+  ;; (|>>) :: TrieMap m2
+  ;;       => (XT (m2 a) -> m1 (m2 a) -> m1 (m2 a))
+  ;;       -> (m2 a -> m2 a)
+  ;;       -> m1 (m2 a) -> m1 (m2 a)
+  ;; (|>>) f g = f (Just . g . deMaybe)
+
+  ;; deMaybe :: TrieMap m => Maybe (m a) -> m a
+  ;; deMaybe Nothing  = emptyTM
+  ;; deMaybe (Just m) = m
+
+
+
+;; GHC TrieMap
+;; alterTM  = xtList alterTM
+
+;; xtList :: TrieMap m => (forall b. k -> XT b -> m b -> m b)
+;;         -> [k] -> XT a -> ListMap m a -> ListMap m a
+;; xtList _  []     f m = m { lm_nil  = f (lm_nil m) }
+;; xtList tr (x:xs) f m = m { lm_cons = lm_cons m |> tr x |>> xtList tr xs f }
+
+(defun xt-list (tr key tf list-map)
+  "Alter LIST-MAP at KEY by TF, using TR for the list contents."
+  (with-accessors ((lm-nil lm-nil)
+                   (lm-cons lm-cons))
+      list-map
+    (format t "xt-list:key: ~a~%" key)
+    (match key
+      (nil
+       (format t "xt-list:nil: ~%")
+       (setf lm-nil (funcall tf lm-nil)))
+      ((cons x xs)
+       (format t "xt-list:cons: ~%")
+       (let ((lm-cons2 (if (null lm-cons) (empty-tm list-map) lm-cons)))
+         (format t "xt-list:lm-cons2: ~a~%" lm-cons2)
+         (let ((x1 (funcall tr x tf list-map))
+               (xs1 (xt-list tr xs tf list-map)))
+           (format t "xt-list:x1: ~a~%" x1)
+           (format t "xt-list:xs1: ~a~%" xs1)
+           (setf lm-cons (cons x1 xs1))
+           (my-pretty-print lm-cons 0)))))))
+
+
+(defmethod at-lm (key tf (list-map list-map))
+  "Alter LIST-MAP at KEY using update function TF."
+  (xt-list #'at-tm key tf list-map))
+
+(defun lift-tf-lm (list-map f)
+  "Take a function F which takes an list-map as an argument and returns
+one, turn it into  TF returning an expr-map."
+  ;; type TF v = Maybe v → Maybe v
+  ;; liftTF :: (ExprMap v → ExprMap v) → TF (ExprMap v)
+  ;; liftTF f Nothing = Just (f emptyEM)
+  ;; liftTF f (Just m) = Just (f m)
+  (lambda (tm)
+    (declare (type (or null list-map) tm))
+    (let ((tm2 (if (null tm) (empty-lm list-map) tm)))
+      (funcall f tm2)
+      tm2)))
+
+;; -------------------------------------
+
+
+(defun foldr-lm (k z list-map)
+  (format t "foldr-lm:list-map:~a~%" list-map)
+  (if (null list-map)
+      (progn
+        (format t "foldr-lm:null list-map~%")
+        z)
+      (with-accessors ((lm-nil lm-nil)
+                       (lm-cons lm-cons))
+          list-map
+        (labels ((kapp (m1 r)
+                   (format t "foldr-lm:kapp:m1:~a~%" m1)
+                   (format t "foldr-lm:kapp:r:~a~%" r)
+                   (foldr-lm k r m1)))
+          (let ((z1 (foldr-lm #'kapp z lm-cons)))
+            (format t "foldr-lm:z1:~a~%" z1)
+            (if (null lm-nil)
+                z1
+                (funcall k lm-nil z1)))))))
+
+;; -------------------------------------
+;; Generic methods
+(defun empty-lm (make-contents)
+  (make-instance 'list-map :lm-empty-contents make-contents))
+
+(defmethod empty-tm ((list-map list-map))
+  (funcall (lm-empty-contents list-map)))
+
+(defmethod lk-tm (key (list-map list-map))
+  (lk-lm key list-map))
+
+(defmethod at-tm (key f (list-map list-map))
+  (at-lm key f list-map))
+
+(defmethod foldr-tm (k z (list-map list-map))
+  (foldr-lm k z list-map))
+
+;; ---------------------------------------------------------------------
+
+(defun t7 ()
+  ;; First attempt, simple, contents is not another trie-map
+  (let ((test-tm (empty-lm #'empty-em)))
+    (insert-tm (list '(:var "x") '(:var "y")) 'v1 test-tm)
+    (insert-tm (list '(:var "z") '(:var "y")) 'v2 test-tm)
+    (format t "test-tm:--------------------~%")
+    (format t "test-tm: ~a~%" test-tm)
+    (my-pretty-print test-tm 0)
+
+    ;; (format t "------------------------------------------~%")
+    ;; (format t "count:~a~%"
+    ;;         (foldr-tm (lambda (v r)
+    ;;                     ;; (declare (ignore b))
+    ;;                     (format t "t7:v:~a~%" v)
+    ;;                     (format t "t7:r:~a~%" r)
+    ;;                     (+ r 1))
+    ;;                   0 test-tm))
+
+    ;; (format t "elems:~a~%" (elems-em test-tm))
+    ))
