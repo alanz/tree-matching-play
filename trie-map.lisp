@@ -118,17 +118,15 @@ one, turn it into  TF returning an expr-map."
       (funcall f em2)
       em2)))
 
-;; m { em_app = atEM e1 (liftTF (atEM e2 tf )) app)
 (defmethod at-em (expr tf (expr-map expr-map))
   "Alter EXPR-MAP at EXPR using update function TF."
   (with-accessors ((em-var em-var)
                    (em-app em-app))
       expr-map
-    (my-pretty-print expr-map 0)
+    ;; (my-pretty-print expr-map 0)
     (match expr
       ((list :var v)
-       (alter-map tf v em-var)
-       )
+       (alter-map tf v em-var))
       ((list :app e1 e2)
        ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
        (let ((em-app2 (if (null em-app) (empty-em) em-app)))
@@ -463,6 +461,9 @@ one, turn it into  TF returning an TRIE-MAP."))
 ;; data ListMap tm v = LM { lm_nil  :: Maybe v
 ;;                        , lm_cons :: tm (ListMap tm v) }
 
+;; Key factor is that `lm_cons` has a trie-map of the enclosed
+;; trie-map type, with its values being a list-map
+
 (defclass list-map (trie-map)
   ((%lm-nil :accessor lm-nil :initform nil)
    (%lm-cons :accessor lm-cons :initform nil)
@@ -519,8 +520,6 @@ one, turn it into  TF returning an TRIE-MAP."))
   ;; deMaybe Nothing  = emptyTM
   ;; deMaybe (Just m) = m
 
-
-
 ;; GHC TrieMap
 ;; alterTM  = xtList alterTM
 
@@ -529,31 +528,25 @@ one, turn it into  TF returning an TRIE-MAP."))
 ;; xtList _  []     f m = m { lm_nil  = f (lm_nil m) }
 ;; xtList tr (x:xs) f m = m { lm_cons = lm_cons m |> tr x |>> xtList tr xs f }
 
-(defun xt-list (tr key tf list-map)
-  "Alter LIST-MAP at KEY by TF, using TR for the list contents."
-  (with-accessors ((lm-nil lm-nil)
-                   (lm-cons lm-cons))
-      list-map
-    (format t "xt-list:key: ~a~%" key)
-    (match key
-      (nil
-       (format t "xt-list:nil: ~%")
-       (setf lm-nil (funcall tf lm-nil)))
-      ((cons x xs)
-       (format t "xt-list:cons: ~%")
-       (let ((lm-cons2 (if (null lm-cons) (empty-tm list-map) lm-cons)))
-         (format t "xt-list:lm-cons2: ~a~%" lm-cons2)
-         (let ((x1 (funcall tr x tf list-map))
-               (xs1 (xt-list tr xs tf list-map)))
-           (format t "xt-list:x1: ~a~%" x1)
-           (format t "xt-list:xs1: ~a~%" xs1)
-           (setf lm-cons (cons x1 xs1))
-           (my-pretty-print lm-cons 0)))))))
+;; In above, m is ListMap m a
+;;   tr is :: k -> XT (ListMap m a) -> m (ListMap m a) -> m (ListMap m a)
+;;   b is ListMap m a
 
+;; Key is the |>> operator, which is basically lift-tf
 
-(defmethod at-lm (key tf (list-map list-map))
-  "Alter LIST-MAP at KEY using update function TF."
-  (xt-list #'at-tm key tf list-map))
+;; Implementation of (|>>)
+(defun pipe->-> (f g tm tm-class)
+  (let* ((tm2 (if (null tm) (empty-tm tm-class) tm))
+        (r (funcall g tm2)))
+    (funcall f r)))
+
+;; retrie has same ListMap definition, but
+  ;; mAlter :: AlphaEnv -> Quantifiers -> Key (ListMap m) -> A a -> ListMap m a -> ListMap m a
+  ;; mAlter env vs []     f m = m { lmNil  = mAlter env vs () f (lmNil m) }
+  ;; mAlter env vs (x:xs) f m = m { lmCons = mAlter env vs x (toA (mAlter env vs xs f)) (lmCons m) }
+  ;; XT is A in retrie
+  ;; toA :: PatternMap m => (m a -> m a) -> A (m a)
+  ;; toA f = Just . f . fromMaybe mEmpty
 
 (defun lift-tf-lm (list-map f)
   "Take a function F which takes an list-map as an argument and returns
@@ -562,11 +555,48 @@ one, turn it into  TF returning an expr-map."
   ;; liftTF :: (ExprMap v → ExprMap v) → TF (ExprMap v)
   ;; liftTF f Nothing = Just (f emptyEM)
   ;; liftTF f (Just m) = Just (f m)
+  (format t "lift-tf-lm: list-map: ~a~%" list-map)
   (lambda (tm)
     (declare (type (or null list-map) tm))
-    (let ((tm2 (if (null tm) (empty-lm list-map) tm)))
+    (format t "lift-tf-lm:lambda:tm: ~a~%" tm)
+    (let ((tm2 (if (null tm)
+                   (funcall (lm-empty-contents list-map))
+                   ;; (empty-lm list-map)
+                   tm)))
       (funcall f tm2)
       tm2)))
+
+(defmethod at-lm (key tf (list-map list-map))
+  "Alter LIST-MAP at KEY using update function TF."
+  ;; (xt-list #'at-tm key tf list-map)
+  (with-accessors ((lm-nil lm-nil)
+                   (lm-cons lm-cons))
+      list-map
+    (format t "at-lm:key: ~a~%" key)
+    (match key
+      (nil
+       (format t "at-lm:nil: ~%")
+       (setf lm-nil (funcall tf lm-nil)))
+      ((cons x xs)
+       (format t "at-lm:cons: ~%")
+       (format t "at-lm:lm-cons: ~a~%" lm-cons)
+       (format t "at-lm:x: ~a~%" x)
+       (format t "at-lm:xs: ~a~%" xs)
+       (let ((lm-cons2 (if (null lm-cons)
+                           (empty-lm list-map)
+                           lm-cons)))
+         (format t "at-lm:lm-cons2: ~a~%" lm-cons2)
+         ;; Simplify on the retrie model, which is a variant on lift-tf
+         ;; mAlter env vs (x:xs) f m = m { lmCons = mAlter env vs x (toA (mAlter env vs xs f)) (lmCons m) }
+
+         ;; lm_cons is an expr-map, whose items are list-maps. So lm_nil in that case is an expr-map
+         (setf lm-cons (at-tm x
+                              (lift-tf-lm list-map (lambda (lm)
+                                                     (format t "at-lm:lambda:lm: ~a~%" lm)
+                                                     (at-tm xs tf lm)))
+                              lm-cons2))
+         (my-pretty-print lm-cons 0))))
+    list-map))
 
 ;; -------------------------------------
 
@@ -609,14 +639,30 @@ one, turn it into  TF returning an expr-map."
 
 ;; ---------------------------------------------------------------------
 
+;; Motivating example in the paper (P5) is
+;; data Expr = ... | AppV Expr [Expr]
+
+
 (defun t7 ()
-  ;; First attempt, simple, contents is not another trie-map
-  (let ((test-tm (empty-lm #'empty-em)))
+  ;; First attempt, simple, contents is an expr-map
+  (let ((test-tm (empty-lm #'empty-em))
+        (test-em (empty-em)))
+    ;; (format t "------------------------------------------~%")
+    ;; (insert-tm '(:var "x") 'v1 test-em)
+    ;; (format t "test-em:--------------------~%")
+    ;; (format t "test-em: ~a~%" test-em)
+    ;; (my-pretty-print test-em 0)
+    (format t "1------------------------------------------~%")
     (insert-tm (list '(:var "x") '(:var "y")) 'v1 test-tm)
-    (insert-tm (list '(:var "z") '(:var "y")) 'v2 test-tm)
+    (format t "2------------------------------------------~%")
     (format t "test-tm:--------------------~%")
     (format t "test-tm: ~a~%" test-tm)
     (my-pretty-print test-tm 0)
+    (format t "3------------------------------------------~%")
+    ;; (insert-tm (list '(:var "z") '(:var "y")) 'v2 test-tm)
+    ;; (format t "test-tm:--------------------~%")
+    ;; (format t "test-tm: ~a~%" test-tm)
+    ;; (my-pretty-print test-tm 0)
 
     ;; (format t "------------------------------------------~%")
     ;; (format t "count:~a~%"
