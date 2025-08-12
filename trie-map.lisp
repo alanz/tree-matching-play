@@ -405,11 +405,11 @@ This is such that foldr f z == foldr f z . elems."
         (labels ((kapp (m1 r)
                    (format t "foldr-em:kapp:m1:~a~%" m1)
                    (format t "foldr-em:kapp:r:~a~%" r)
-                   (foldr-em k r m1))
+                   (foldr-tm k r m1))
                  (kappv (m1 r)
                    (format t "foldr-em:kappv:m1:~a~%" m1)
                    (format t "foldr-em:kappv:r:~a~%" r)
-                   (foldr-lm k r m1)))
+                   (foldr-tm k r m1)))
           (let* ((z1 (foldr-em #'kapp z em-app))
                  (z2 (foldr-em #'kappv z1 em-app-v)))
             (format t "foldr-em:z1:~a~%" z1)
@@ -701,11 +701,15 @@ one, turn it into  TF returning an expr-map."
       (with-accessors ((lm-nil lm-nil)
                        (lm-cons lm-cons))
           list-map
-        (labels ((kapp (m1 r)
-                   (format t "foldr-lm:kapp:m1:~a~%" m1)
-                   (format t "foldr-lm:kapp:r:~a~%" r)
-                   (foldr-lm k r m1)))
-          (let ((z1 (foldr-lm #'kapp z lm-cons)))
+        (format t "foldr-lm:lm-nil: ~a~%" lm-nil)
+        (format t "foldr-lm:lm-cons: ~a~%" lm-cons)
+        (labels ((kcons (m1 r)
+                   (format t "foldr-lm:kcons:m1:~a~%" m1)
+                   (format t "foldr-lm:kcons:r:~a~%" r)
+                   (foldr-tm k r m1)))
+          (let ((z1 (if (null lm-cons)
+                        z
+                        (foldr-tm #'kcons z lm-cons))))
             (format t "foldr-lm:z1:~a~%" z1)
             (if (null lm-nil)
                 z1
@@ -733,7 +737,6 @@ one, turn it into  TF returning an expr-map."
 ;; Motivating example in the paper (P5) is
 ;; data Expr = ... | AppV Expr [Expr]
 
-
 (defun t7 ()
   (let ((test-em (empty-em)))
     (format t "1------------------------------------------~%")
@@ -758,5 +761,31 @@ one, turn it into  TF returning an expr-map."
                         (+ r 1))
                       0 test-em))
     (format t "5------------------------------------------~%")
-    ;; (format t "elems:~a~%" (elems-em test-tm))
+    (format t "elems:~a~%" (elems-em test-em))
     ))
+
+;; ---------------------------------------------------------------------
+;; 3.7 Singleton maps, and empty maps revisited
+;; P6
+;;
+;; data SEMap tm v = EmptySEM
+;;                 | SingleSEM (Key tm) v
+;;                 | MultiSEM (tm v)
+
+
+(defclass se-map (trie-map)
+  ((%se-contents :accessor se-contents :initform nil)
+   ;; (%lm-nil :accessor lm-nil :initform nil)
+   ;; (%empty-contents :accessor lm-empty-contents :initarg :lm-empty-contents)
+   )
+  (:documentation "SEMap tm v"))
+
+(defmethod my-pretty-print ((se-map se-map) &optional (depth 0) (stream t))
+  (format stream "~v,tSE-MAP:~a~%" depth se-map)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tSE-MAP-se-contents:~%" depth1)
+    (format stream "~v,t~a ~%" (+ 1 depth1) (se-contents e-map))
+    ))
+
+(defun empty-sm ()
+  (make-instance 'se-map))
