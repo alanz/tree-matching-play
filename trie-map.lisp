@@ -30,7 +30,7 @@
   ((%em-var :accessor em-var :initform (make-hash-table :test 'equal))
    ;; For the :app constructor, an expr-map for e1 containing an expr-map for e2
    (%em-app :accessor em-app :initform nil)
-   )
+   (%em-app-v :accessor em-app-v :initform nil))
   (:documentation "ExprMap v"))
 
 (defun empty-em ()
@@ -67,7 +67,12 @@
     (format stream "~v,tEXPR-MAP-em-app:~%" depth1)
     (if (not (null (em-app expr-map)))
         (my-pretty-print (em-app expr-map) (+ 2 depth1))
-        (format stream "~v,t  NIL~%" depth1))))
+        (format stream "~v,t  NIL~%" depth1))
+    (format stream "~v,tEXPR-MAP-em-app-v:~%" depth1)
+    (if (not (null (em-app-v expr-map)))
+        (my-pretty-print (em-app-v expr-map) (+ 2 depth1))
+        (format stream "~v,t  NIL~%" depth1))
+    ))
 
 ;; ---------------------------------------------------------------------
 
@@ -79,7 +84,8 @@
   (format t "expr: ~a~%" expr)
   (format t "expr-map: ~a~%" expr-map)
   (with-accessors ((em-var em-var)
-                   (em-app em-app))
+                   (em-app em-app)
+                   (em-app-v em-app-v))
       expr-map
     (format t "em-var: ~a~%" em-var)
     (format t "em-app: ~a~%" em-app)
@@ -88,6 +94,14 @@
         ((list :app e1 e2)
          (if (not (null em-app))
              (let ((m1 (lk-em e1 em-app)))
+               (format t "m1: ~a~%" m1)
+               (cond
+                 ((null m1) nil)
+                 (t (lk-em e2 m1))))
+             nil))
+        ((list :app-v e1 e2)
+         (if (not (null em-app-v))
+             (let ((m1 (lk-em e1 em-app-v)))
                (format t "m1: ~a~%" m1)
                (cond
                  ((null m1) nil)
@@ -121,11 +135,16 @@ one, turn it into  TF returning an expr-map."
 (defmethod at-em (expr tf (expr-map expr-map))
   "Alter EXPR-MAP at EXPR using update function TF."
   (with-accessors ((em-var em-var)
-                   (em-app em-app))
+                   (em-app em-app)
+                   (em-app-v em-app-v))
       expr-map
-    ;; (my-pretty-print expr-map 0)
+    (format t "at-em: entry:expr:~a~%" expr)
+    (my-pretty-print expr-map 0)
+    (format t "at-em: entry done~%")
     (match expr
       ((list :var v)
+       (format t "at-em:var:v: ~a~%" v)
+       (format t "at-em:var:em-var: ~a~%" em-var)
        (alter-map tf v em-var))
       ((list :app e1 e2)
        ;; App e1 e2 → m { em_app = atEM e1 (liftTF (atEM e2 tf )) app }
@@ -133,7 +152,17 @@ one, turn it into  TF returning an expr-map."
          (setf em-app (at-em e1 (lift-tf-em (lambda (em) (at-em e2 tf em))) em-app2))
          (my-pretty-print em-app 0)
          ))
-       ;; ------------------------------
+      ;; ------------------------------
+       ((list :app-v e1 e2)
+        (format t "at-em:app-v:e1: ~a~%" e1)
+        (format t "at-em:app-v:e2: ~a~%" e2)
+        (let ((em-app-v2 (if (null em-app-v) (empty-em) em-app-v))
+              (lm-proto (empty-lm #'empty-em))) ;; TODO: lm-proto should be a field if expr-map
+          (setf em-app-v (at-em e1 (lift-tf-lm lm-proto (lambda (em) (at-lm e2 tf em))) em-app-v2))
+          (format t "at-em:app-v:em-app-v: ~a~%" em-app-v)
+          (my-pretty-print em-app-v 0)
+          ))
+      ;; ------------------------------
       (t (format t "match failed ~%")))
     (format t "at-em: exiting~%")
     (my-pretty-print expr-map 0)
@@ -235,12 +264,14 @@ the two corresponding values"
   ;; When a key appears on both maps, the combining function
   ;; is used to combine the two corresponding values
   (with-accessors ((em-var-1 em-var)
-                   (em-app-1 em-app))
+                   (em-app-1 em-app)
+                   (em-app-v-1 em-app-v))
       expr-map-1
 
     (my-pretty-print em-var-1)
     (with-accessors ((em-var-2 em-var)
-                     (em-app-2 em-app))
+                     (em-app-2 em-app)
+                     (em-app-v-2 em-app-v))
         expr-map-2
       (let ((r (empty-em))
             (em-var-r (hash-table-union f em-var-1 em-var-2))
@@ -248,15 +279,23 @@ the two corresponding values"
               (cond
                 ((null em-app-1) em-app-2)
                 ((null em-app-2) em-app-2)
-                (t (union-with-em f em-app-1 em-app-2)))))
+                (t (union-with-em f em-app-1 em-app-2))))
+            (em-app-v-r
+              (cond
+                ((null em-app-v-1) em-app-v-2)
+                ((null em-app-v-2) em-app-v-2)
+                (t (union-with-em f em-app-v-1 em-app-v-2)))))
 
         (format t "union-with-em:em-var-r: ~a~%" em-var-r)
         (my-pretty-print em-var-r)
         (format t "union-with-em:em-app-r: ~a~%" em-app-r)
         (my-pretty-print em-app-r)
+        (format t "union-with-em:em-app-v-r: ~a~%" em-app-v-r)
+        (my-pretty-print em-app-v-r)
 
         (setf (em-var r) em-var-r)
         (setf (em-app r) em-app-r)
+        (setf (em-app-v r) em-app-v-r)
         (format t "union-with-em:r: ~a~%" r)
         (my-pretty-print r)
         r))))
@@ -318,15 +357,18 @@ This is such that foldr f z == foldr f z . elems."
         (format t "foldr-em:null expr-map~%")
         z)
       (with-accessors ((em-var em-var)
-                       (em-app em-app))
+                       (em-app em-app)
+                       (em-app-v em-app-v))
           expr-map
         (labels ((kapp (m1 r)
                    (format t "foldr-em:kapp:m1:~a~%" m1)
                    (format t "foldr-em:kapp:r:~a~%" r)
                    (foldr-em k r m1)))
-          (let ((z1 (foldr-em #'kapp z em-app)))
+          (let* ((z1 (foldr-em #'kapp z em-app))
+                 (z2 (foldr-em #'kapp z1 em-app-v)))
             (format t "foldr-em:z1:~a~%" z1)
-            (hash-table-foldr k z1 em-var))))))
+            (format t "foldr-em:z1:~a~%" z2)
+            (hash-table-foldr k z2 em-var))))))
 
 (defun size-em (expr-map)
   (foldr-em (lambda (v r)
@@ -560,9 +602,10 @@ one, turn it into  TF returning an expr-map."
     (declare (type (or null list-map) tm))
     (format t "lift-tf-lm:lambda:tm: ~a~%" tm)
     (let ((tm2 (if (null tm)
-                   (funcall (lm-empty-contents list-map))
-                   ;; (empty-lm list-map)
+                   ;; (funcall (lm-empty-contents list-map))
+                   (empty-lm (lm-empty-contents list-map))
                    tm)))
+      (format t "lift-tf-lm:lambda:tm2: ~a~%" tm2)
       (funcall f tm2)
       tm2)))
 
@@ -582,8 +625,10 @@ one, turn it into  TF returning an expr-map."
        (format t "at-lm:lm-cons: ~a~%" lm-cons)
        (format t "at-lm:x: ~a~%" x)
        (format t "at-lm:xs: ~a~%" xs)
+       (format t "at-lm:lm-empty-contents: ~a~%" (lm-empty-contents list-map))
        (let ((lm-cons2 (if (null lm-cons)
-                           (empty-lm list-map)
+                           (funcall (lm-empty-contents list-map))
+                           ;; (empty-lm list-map)
                            lm-cons)))
          (format t "at-lm:lm-cons2: ~a~%" lm-cons2)
          ;; Simplify on the retrie model, which is a variant on lift-tf
@@ -645,7 +690,7 @@ one, turn it into  TF returning an expr-map."
 
 (defun t7 ()
   ;; First attempt, simple, contents is an expr-map
-  (let ((test-tm (empty-lm #'empty-em))
+  (let (;; (test-tm (empty-lm #'empty-em))
         (test-em (empty-em)))
     ;; (format t "------------------------------------------~%")
     ;; (insert-tm '(:var "x") 'v1 test-em)
@@ -653,11 +698,13 @@ one, turn it into  TF returning an expr-map."
     ;; (format t "test-em: ~a~%" test-em)
     ;; (my-pretty-print test-em 0)
     (format t "1------------------------------------------~%")
-    (insert-tm (list '(:var "x") '(:var "y")) 'v1 test-tm)
+    ;; (insert-tm (list '(:var "x") '(:var "y")) 'v1 test-tm)
+    (insert-tm '(:app-v (:var "f") ((:var "x") (:var "y"))) 'v1 test-em)
+
     (format t "2------------------------------------------~%")
-    (format t "test-tm:--------------------~%")
-    (format t "test-tm: ~a~%" test-tm)
-    (my-pretty-print test-tm 0)
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
     (format t "3------------------------------------------~%")
     ;; (insert-tm (list '(:var "z") '(:var "y")) 'v2 test-tm)
     ;; (format t "test-tm:--------------------~%")
