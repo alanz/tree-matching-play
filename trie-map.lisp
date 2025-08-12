@@ -343,6 +343,48 @@ This is such that foldr f z == foldr f z . elems."
     (format t "hash-table-foldr:r1: ~a~%" r)
     r))
 
+;; ---------------------------------------------------------------------
+;; foldrLM:
+;; fdList :: forall m a b. TrieMap m
+;;        => (a -> b -> b) -> ListMap m a -> b -> b
+;; fdList k m = foldMaybe k          (lm_nil m)
+;;            . foldTM    (fdList k) (lm_cons m)
+
+;; foldMaybe :: (a -> b -> b) -> Maybe a -> b -> b
+;; foldMaybe _ Nothing  b = b
+;; foldMaybe k (Just a) b = k a b
+
+;; Method on trie-map
+   ;; foldTM   :: (a -> b -> b) -> m a -> b -> b
+   ;;    -- The unusual argument order here makes
+   ;;    -- it easy to compose calls to foldTM;
+   ;;    -- see for example fdE below
+
+(defun foldr-lm (k z list-map)
+  (format t "foldr-lm:list-map:~a~%" list-map)
+  (if (null list-map)
+      (progn
+        (format t "foldr-lm:null list-map~%")
+        z)
+      (with-accessors ((lm-nil lm-nil)
+                       (lm-cons lm-cons))
+          list-map
+        (format t "foldr-lm:lm-nil: ~a~%" lm-nil)
+        (format t "foldr-lm:lm-cons: ~a~%" lm-cons)
+        (labels ((kcons (m1 r)
+                   (format t "foldr-lm:kcons:m1:~a~%" m1)
+                   (format t "foldr-lm:kcons:r:~a~%" r)
+                   (foldr-tm k r m1)))
+          (let ((z1 (foldr-em #'kcons z lm-cons)))
+            (format t "foldr-lm:z1: ~a~%" z1)
+            (if (null lm-nil)
+                z1
+                (funcall k lm-nil z1))
+            ;; (foldr-tm k z1 lm-nil)
+            )))))
+
+;; ---------------------------------------------------------------------
+
 ;; foldrEM :: ∀v. (v → r → r) → r → ExprMap v → r
 ;; foldrEM k z (EM { em_var = var, em_app = app })
 ;;   = Map.foldr k z1 var
@@ -363,11 +405,15 @@ This is such that foldr f z == foldr f z . elems."
         (labels ((kapp (m1 r)
                    (format t "foldr-em:kapp:m1:~a~%" m1)
                    (format t "foldr-em:kapp:r:~a~%" r)
-                   (foldr-em k r m1)))
+                   (foldr-em k r m1))
+                 (kappv (m1 r)
+                   (format t "foldr-em:kappv:m1:~a~%" m1)
+                   (format t "foldr-em:kappv:r:~a~%" r)
+                   (foldr-lm k r m1)))
           (let* ((z1 (foldr-em #'kapp z em-app))
-                 (z2 (foldr-em #'kapp z1 em-app-v)))
+                 (z2 (foldr-em #'kappv z1 em-app-v)))
             (format t "foldr-em:z1:~a~%" z1)
-            (format t "foldr-em:z1:~a~%" z2)
+            (format t "foldr-em:z2:~a~%" z2)
             (hash-table-foldr k z2 em-var))))))
 
 (defun size-em (expr-map)
@@ -689,16 +735,9 @@ one, turn it into  TF returning an expr-map."
 
 
 (defun t7 ()
-  ;; First attempt, simple, contents is an expr-map
-  (let (;; (test-tm (empty-lm #'empty-em))
-        (test-em (empty-em)))
-    ;; (format t "------------------------------------------~%")
-    ;; (insert-tm '(:var "x") 'v1 test-em)
-    ;; (format t "test-em:--------------------~%")
-    ;; (format t "test-em: ~a~%" test-em)
-    ;; (my-pretty-print test-em 0)
+  (let ((test-em (empty-em)))
     (format t "1------------------------------------------~%")
-    ;; (insert-tm (list '(:var "x") '(:var "y")) 'v1 test-tm)
+    ;; Motivating example in the paper
     (insert-tm '(:app-v (:var "f") ((:var "x") (:var "y"))) 'v1 test-em)
 
     (format t "2------------------------------------------~%")
@@ -706,19 +745,18 @@ one, turn it into  TF returning an expr-map."
     (format t "test-em: ~a~%" test-em)
     (my-pretty-print test-em 0)
     (format t "3------------------------------------------~%")
-    ;; (insert-tm (list '(:var "z") '(:var "y")) 'v2 test-tm)
-    ;; (format t "test-tm:--------------------~%")
-    ;; (format t "test-tm: ~a~%" test-tm)
-    ;; (my-pretty-print test-tm 0)
-
-    ;; (format t "------------------------------------------~%")
-    ;; (format t "count:~a~%"
-    ;;         (foldr-tm (lambda (v r)
-    ;;                     ;; (declare (ignore b))
-    ;;                     (format t "t7:v:~a~%" v)
-    ;;                     (format t "t7:r:~a~%" r)
-    ;;                     (+ r 1))
-    ;;                   0 test-tm))
-
+    (insert-tm '(:app-v (:var "f") ((:var "x") (:var "z"))) 'vz test-em)
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+    (format t "4------------------------------------------~%")
+    (format t "count:~a~%"
+            (foldr-tm (lambda (v r)
+                        ;; (declare (ignore b))
+                        (format t "t7:v:~a~%" v)
+                        (format t "t7:r:~a~%" r)
+                        (+ r 1))
+                      0 test-em))
+    (format t "5------------------------------------------~%")
     ;; (format t "elems:~a~%" (elems-em test-tm))
     ))
