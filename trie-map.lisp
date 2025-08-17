@@ -24,6 +24,13 @@
   (:documentation "Base class for TrieMap implementations."))
 
 ;; ---------------------------------------------------------------------
+;; Forward declaration from 3.7
+
+(defclass se-map ()
+  ()
+  (:documentation "Singleton map."))
+
+;; ---------------------------------------------------------------------
 ;; 3.1 interface
 
 (defclass expr-map (trie-map)
@@ -34,7 +41,7 @@
   (:documentation "ExprMap v"))
 
 (defun empty-em ()
-  (make-instance 'expr-map))
+  (empty-sem #'(lambda () (make-instance 'expr-map))))
 
 
 ;; ---------------------------------------------------------------------
@@ -158,7 +165,7 @@ one, turn it into  TF returning an expr-map."
         (format t "at-em:app-v:e2: ~a~%" e2)
         (let ((em-app-v2 (if (null em-app-v) (empty-em) em-app-v))
               (lm-proto (empty-lm #'empty-em))) ;; TODO: lm-proto should be a field if expr-map
-          (setf em-app-v (at-em e1 (lift-tf-lm lm-proto (lambda (em) (at-lm e2 tf em))) em-app-v2))
+          (setf em-app-v (at-tm e1 (lift-tf-lm lm-proto (lambda (em) (at-lm e2 tf em))) em-app-v2))
           (format t "at-em:app-v:em-app-v: ~a~%" em-app-v)
           (my-pretty-print em-app-v 0)
           ))
@@ -410,8 +417,8 @@ This is such that foldr f z == foldr f z . elems."
                    (format t "foldr-em:kappv:m1:~a~%" m1)
                    (format t "foldr-em:kappv:r:~a~%" r)
                    (foldr-tm k r m1)))
-          (let* ((z1 (foldr-em #'kapp z em-app))
-                 (z2 (foldr-em #'kappv z1 em-app-v)))
+          (let* ((z1 (foldr-tm #'kapp z em-app))
+                 (z2 (foldr-tm #'kappv z1 em-app-v)))
             (format t "foldr-em:z1:~a~%" z1)
             (format t "foldr-em:z2:~a~%" z2)
             (hash-table-foldr k z2 em-var))))))
@@ -674,7 +681,6 @@ one, turn it into  TF returning an expr-map."
        (format t "at-lm:lm-empty-contents: ~a~%" (lm-empty-contents list-map))
        (let ((lm-cons2 (if (null lm-cons)
                            (funcall (lm-empty-contents list-map))
-                           ;; (empty-lm list-map)
                            lm-cons)))
          (format t "at-lm:lm-cons2: ~a~%" lm-cons2)
          ;; Simplify on the retrie model, which is a variant on lift-tf
@@ -740,6 +746,8 @@ one, turn it into  TF returning an expr-map."
 (defun t7 ()
   (let ((test-em (empty-em)))
     (format t "1------------------------------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
     ;; Motivating example in the paper
     (insert-tm '(:app-v (:var "f") ((:var "x") (:var "y"))) 'v1 test-em)
 
@@ -760,8 +768,8 @@ one, turn it into  TF returning an expr-map."
                         (format t "t7:r:~a~%" r)
                         (+ r 1))
                       0 test-em))
-    (format t "5------------------------------------------~%")
-    (format t "elems:~a~%" (elems-em test-em))
+    ;; (format t "5------------------------------------------~%")
+    ;; (format t "elems:~a~%" (elems-em test-em))
     ))
 
 ;; ---------------------------------------------------------------------
@@ -774,18 +782,170 @@ one, turn it into  TF returning an expr-map."
 
 
 (defclass se-map (trie-map)
-  ((%se-contents :accessor se-contents :initform nil)
-   ;; (%lm-nil :accessor lm-nil :initform nil)
-   ;; (%empty-contents :accessor lm-empty-contents :initarg :lm-empty-contents)
-   )
+  ((%se-contents :accessor se-contents :initform 'se-empty)
+   (%se-empty-contents :accessor se-empty-contents :initarg :se-empty-contents))
   (:documentation "SEMap tm v"))
 
 (defmethod my-pretty-print ((se-map se-map) &optional (depth 0) (stream t))
   (format stream "~v,tSE-MAP:~a~%" depth se-map)
-  (let ((depth1 (+ 2 depth)))
+  (let ((depth1 (+ 2 depth))
+        (depth2 (+ 4 depth)))
     (format stream "~v,tSE-MAP-se-contents:~%" depth1)
-    (format stream "~v,t~a ~%" (+ 1 depth1) (se-contents e-map))
+    (match (se-contents se-map)
+      ('se-empty (format stream "~v,tSE-EMPTY~%" depth2))
+
+      ((list 'se-single k v)
+       (format stream "~v,tSE-SINGLE:~%" depth2)
+       (my-pretty-print k (+ 2 depth2) stream)
+       (my-pretty-print v (+ 2 depth2) stream))
+
+      ((list 'se-multi tm)
+       (format stream "~v,tSE-MULTI:~%" depth2)
+       (my-pretty-print tm (+ 2 depth2) stream))
+      (t (error "Unexpected se-map contents in pretty-print ~a" (se-contents se-map))))
+    (format stream "~v,tSE-MAP-se-empty-contents:~a ~%" depth1 (se-empty-contents se-map))
     ))
 
-(defun empty-sm ()
-  (make-instance 'se-map))
+(defun empty-sem (make-contents)
+  (make-instance 'se-map :se-empty-contents make-contents))
+
+;; ---------------------------------------------------------------------
+
+;; P6
+;; atSEM :: TrieMap tm ⇒ Key tm → TF v → SEMap tm v → SEMap tm v
+;;
+;; atSEM k tf EmptySEM = case tf Nothing of
+;;   Nothing → EmptySEM
+;;   Just v → SingleSEM k v
+;;
+;; atSEM k1 tf (SingleSEM k2 v2 ) = if k1 == k2
+;;   then case tf (Just v2 ) of
+;;          Nothing → EmptySEM
+;;          Just v’ → SingleSEM k2 v’
+;;   else case tf Nothing of
+;;          Nothing → SingleSEM k2 v2
+;;          Just v1 → MultiSEM (insertTM k1 v1 (insertTM k2 v2 emptyTM))
+;;
+;; atSEM k tf (MultiSEM tm) = MultiSEM (atTM k tf tm)
+
+;; {-# INLINEABLE xtG #-}
+;; xtG :: (Eq (Key m), TrieMap m) => Key m -> XT a -> GenMap m a -> GenMap m a
+;; xtG k f EmptyMap
+;;     = case f Nothing of
+;;         Just v  -> SingletonMap k v
+;;         Nothing -> EmptyMap
+;; xtG k f m@(SingletonMap k' v')
+;;     | k' == k
+;;     -- The new key matches the (single) key already in the tree.  Hence,
+;;     -- apply @f@ to @Just v'@ and build a singleton or empty map depending
+;;     -- on the 'Just'/'Nothing' response respectively.
+;;     = case f (Just v') of
+;;         Just v'' -> SingletonMap k' v''
+;;         Nothing  -> EmptyMap
+;;     | otherwise
+;;     -- We've hit a singleton tree for a different key than the one we are
+;;     -- searching for. Hence apply @f@ to @Nothing@. If result is @Nothing@ then
+;;     -- we can just return the old map. If not, we need a map with *two*
+;;     -- entries. The easiest way to do that is to insert two items into an empty
+;;     -- map of type @m a@.
+;;     = case f Nothing of
+;;         Nothing  -> m
+;;         Just v   -> emptyTM |> alterTM k' (const (Just v'))
+;;                            >.> alterTM k  (const (Just v))
+;;                            >.> MultiMap
+;; xtG k f (MultiMap m) = MultiMap (alterTM k f m)
+
+(defun at-sem (key tf se-map)
+  (format t "at-sem:se-map:~a~%" se-map)
+  (format t "at-sem:key:~a~%" key)
+  (format t "at-sem:contents:~a~%" (se-contents se-map))
+  (with-accessors ((se-contents se-contents))
+      se-map
+    (match (se-contents se-map)
+      ('se-empty
+       (format t "at-sem:se-empty~%")
+       (let ((val (funcall tf nil)))
+         (format t "at-sem:se-empty:val:~a~%" val)
+         (if (null val)
+             (setf se-contents 'se-empty)
+             (setf se-contents (list 'se-single key val)))))
+
+      ((list 'se-single k2 v2)
+       (format t "at-sem:se-single:k2:~a~%" k2)
+       (format t "at-sem:se-single:v2:~a~%" v2)
+       (if (equal key k2)
+           ;; same keys
+           (let ((v (funcall tf v2)))
+             (format t "at-sem:se-single:same keys:v:~a~%" v)
+             (if (null v)
+                 (setf se-contents 'se-empty)
+                 (setf se-contents (list 'se-single key v))))
+           ;; different keys
+           (let ((val (funcall tf nil)))
+             (format t "at-sem:se-single:val:~a~%" val)
+             (if (null val)
+                 (setf se-contents (list 'se-single k2 v2))
+                 ;; Else
+                 (progn
+                   (format t "at-sem:se-single:se-empty-contents:e:~a~%" (se-empty-contents se-map))
+                   (let ((sem1 (funcall (se-empty-contents se-map))))
+                     (format t "at-sem:se-single:sem1:e:~a~%" sem1)
+                     (insert-tm k2 v2 sem1)
+                     (format t "at-sem:se-single:sem1:a:~a~%" sem1)
+                     (insert-tm key val sem1)
+                     (format t "at-sem:se-single:sem1:b:~a~%" sem1)
+                     (setf se-contents (list 'se-multi sem1))
+                     (format t "at-sem:se-single:contents:0:~a~%" se-contents)
+                     (format t "at-sem:se-single:contents:1:~a~%" (se-contents se-map))
+                     ))))))
+
+      ((list 'se-multi tm) (list 'se-multi (at-tm key tf tm)))
+      (t (error "Unexpected se-map contents: ~a" (se-contents se-map)))))
+  (format t "at-sem:done:final:~a~%" se-map)
+  (format t "at-sem:done:final contents:~a~%" (se-contents se-map))
+  se-map)
+
+;; ---------------------------------------------------------------------
+
+(defun foldr-sem (k z se-map)
+  (format t "foldr-sem:se-map:~a~%" se-map)
+  ;; (if (null list-map)
+  ;;     (progn
+  ;;       (format t "foldr-lm:null list-map~%")
+  ;;       z)
+  ;;     (with-accessors ((lm-nil lm-nil)
+  ;;                      (lm-cons lm-cons))
+  ;;         list-map
+  ;;       (format t "foldr-lm:lm-nil: ~a~%" lm-nil)
+  ;;       (format t "foldr-lm:lm-cons: ~a~%" lm-cons)
+  ;;       (labels ((kcons (m1 r)
+  ;;                  (format t "foldr-lm:kcons:m1:~a~%" m1)
+  ;;                  (format t "foldr-lm:kcons:r:~a~%" r)
+  ;;                  (foldr-tm k r m1)))
+  ;;         (let ((z1 (foldr-em #'kcons z lm-cons)))
+  ;;           (format t "foldr-lm:z1: ~a~%" z1)
+  ;;           (if (null lm-nil)
+  ;;               z1
+  ;;               (funcall k lm-nil z1))
+  ;;           ;; (foldr-tm k z1 lm-nil)
+  (match (se-contents se-map)
+    ('se-empty z)
+
+    ((list 'se-single _ v2)
+     (funcall k v2 z))
+
+    ((list 'se-multi tm) (foldr-tm k z tm))
+    (t (error "Unexpected se-map contents in foldr-sem: ~a" (se-contents se-map))))
+  )
+
+;; ---------------------------------------------------------------------
+
+(defmethod empty-tm ((se-map se-map))
+  (format t "empty-tm:se-map~%")
+  (funcall (se-empty-contents se-map)))
+
+(defmethod at-tm (key f (se-map se-map))
+  (at-sem key f se-map))
+
+(defmethod foldr-tm (k z (se-map se-map))
+  (foldr-sem k z se-map))
