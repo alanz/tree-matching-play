@@ -26,9 +26,16 @@
 ;; ---------------------------------------------------------------------
 ;; Forward declaration from 3.7
 
-(defclass se-map ()
-  ()
-  (:documentation "Singleton map."))
+(defclass se-map (trie-map)
+  ((%se-contents :accessor se-contents :initform 'se-empty)
+   (%se-empty-contents :accessor se-empty-contents :initarg :se-empty-contents))
+  (:documentation "SEMap tm v"))
+
+(defun empty-sem (make-contents)
+  (make-instance 'se-map :se-empty-contents make-contents))
+
+(defun empty-em ()
+  (empty-sem #'(lambda () (make-instance 'expr-map))))
 
 ;; ---------------------------------------------------------------------
 ;; 3.1 interface
@@ -40,8 +47,6 @@
    (%em-app-v :accessor em-app-v :initform nil))
   (:documentation "ExprMap v"))
 
-(defun empty-em ()
-  (empty-sem #'(lambda () (make-instance 'expr-map))))
 
 
 ;; ---------------------------------------------------------------------
@@ -409,6 +414,8 @@ This is such that foldr f z == foldr f z . elems."
                        (em-app em-app)
                        (em-app-v em-app-v))
           expr-map
+        (format t "foldr-em:em-app:~a~%" em-app)
+        (format t "foldr-em:em-app-v:~a~%" em-app-v)
         (labels ((kapp (m1 r)
                    (format t "foldr-em:kapp:m1:~a~%" m1)
                    (format t "foldr-em:kapp:r:~a~%" r)
@@ -417,8 +424,8 @@ This is such that foldr f z == foldr f z . elems."
                    (format t "foldr-em:kappv:m1:~a~%" m1)
                    (format t "foldr-em:kappv:r:~a~%" r)
                    (foldr-tm k r m1)))
-          (let* ((z1 (foldr-tm #'kapp z em-app))
-                 (z2 (foldr-tm #'kappv z1 em-app-v)))
+          (let* ((z1 (if (null em-app) z (foldr-tm #'kapp z em-app)))
+                 (z2 (if (null em-app-v) z1 (foldr-tm #'kappv z1 em-app-v))))
             (format t "foldr-em:z1:~a~%" z1)
             (format t "foldr-em:z2:~a~%" z2)
             (hash-table-foldr k z2 em-var))))))
@@ -430,7 +437,7 @@ This is such that foldr f z == foldr f z . elems."
             0 expr-map))
 
 (defun elems-em (expr-map)
-  (foldr-em (lambda (v r) (cons v r))
+  (foldr-tm (lambda (v r) (cons v r))
             nil expr-map))
 
 (defun t6 ()
@@ -655,7 +662,6 @@ one, turn it into  TF returning an expr-map."
     (declare (type (or null list-map) tm))
     (format t "lift-tf-lm:lambda:tm: ~a~%" tm)
     (let ((tm2 (if (null tm)
-                   ;; (funcall (lm-empty-contents list-map))
                    (empty-lm (lm-empty-contents list-map))
                    tm)))
       (format t "lift-tf-lm:lambda:tm2: ~a~%" tm2)
@@ -760,16 +766,6 @@ one, turn it into  TF returning an expr-map."
     (format t "test-em:--------------------~%")
     (format t "test-em: ~a~%" test-em)
     (my-pretty-print test-em 0)
-    (format t "4------------------------------------------~%")
-    (format t "count:~a~%"
-            (foldr-tm (lambda (v r)
-                        ;; (declare (ignore b))
-                        (format t "t7:v:~a~%" v)
-                        (format t "t7:r:~a~%" r)
-                        (+ r 1))
-                      0 test-em))
-    ;; (format t "5------------------------------------------~%")
-    ;; (format t "elems:~a~%" (elems-em test-em))
     ))
 
 ;; ---------------------------------------------------------------------
@@ -781,10 +777,6 @@ one, turn it into  TF returning an expr-map."
 ;;                 | MultiSEM (tm v)
 
 
-(defclass se-map (trie-map)
-  ((%se-contents :accessor se-contents :initform 'se-empty)
-   (%se-empty-contents :accessor se-empty-contents :initarg :se-empty-contents))
-  (:documentation "SEMap tm v"))
 
 (defmethod my-pretty-print ((se-map se-map) &optional (depth 0) (stream t))
   (format stream "~v,tSE-MAP:~a~%" depth se-map)
@@ -806,8 +798,6 @@ one, turn it into  TF returning an expr-map."
     (format stream "~v,tSE-MAP-se-empty-contents:~a ~%" depth1 (se-empty-contents se-map))
     ))
 
-(defun empty-sem (make-contents)
-  (make-instance 'se-map :se-empty-contents make-contents))
 
 ;; ---------------------------------------------------------------------
 
@@ -949,3 +939,35 @@ one, turn it into  TF returning an expr-map."
 
 (defmethod foldr-tm (k z (se-map se-map))
   (foldr-sem k z se-map))
+
+;; ---------------------------------------------------------------------
+
+(defun t8 ()
+  (let ((test-em (empty-em)))
+    (format t "1------------------------------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+    ;; Motivating example in the paper
+    (insert-tm '(:app-v (:var "f") ((:var "x") (:var "y"))) 'v1 test-em)
+
+    (format t "2------------------------------------------~%")
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+    (format t "3------------------------------------------~%")
+    (insert-tm '(:app-v (:var "f") ((:var "x") (:var "z"))) 'vz test-em)
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+    (format t "4------------------------------------------~%")
+    (format t "count:~a~%"
+            (foldr-tm (lambda (v r)
+                        (format t "t7:v:~a~%" v)
+                        (format t "t7:r:~a~%" r)
+                        (+ r 1))
+                      0 test-em))
+    (format t "5------------------------------------------~%")
+    (format t "elems:~a~%" (elems-em test-em))
+    ))
+
+;; ---------------------------------------------------------------------
