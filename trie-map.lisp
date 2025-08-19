@@ -119,7 +119,7 @@
                  ((null m1) nil)
                  (t (lk-em e2 m1))))
              nil))
-        (t (format t "match failed ~%")))))
+        (oops (error "match failed:~A ~%" oops)))))
 
 (defun alter-map (f key map)
   "Apply F to the value in the hash-map MAP at KEY (or to nil if not found).
@@ -175,7 +175,7 @@ one, turn it into  TF returning an expr-map."
           (my-pretty-print em-app-v 0)
           ))
       ;; ------------------------------
-      (t (format t "match failed ~%")))
+      (oops (error "match failed:~a ~%" oops)))
     (format t "at-em: exiting~%")
     (my-pretty-print expr-map 0)
     (format t "at-em: exiting done~%")
@@ -794,7 +794,7 @@ one, turn it into  TF returning an expr-map."
       ((list 'se-multi tm)
        (format stream "~v,tSE-MULTI:~%" depth2)
        (my-pretty-print tm (+ 2 depth2) stream))
-      (t (error "Unexpected se-map contents in pretty-print ~a" (se-contents se-map))))
+      (oops (error "Unexpected se-map contents in pretty-print ~a" oops)))
     (format stream "~v,tSE-MAP-se-empty-contents:~a ~%" depth1 (se-empty-contents se-map))
     ))
 
@@ -890,7 +890,7 @@ one, turn it into  TF returning an expr-map."
                      ))))))
 
       ((list 'se-multi tm) (list 'se-multi (at-tm key tf tm)))
-      (t (error "Unexpected se-map contents: ~a" (se-contents se-map)))))
+      (oops (error "Unexpected se-map contents: ~a" oops))))
   (format t "at-sem:done:final:~a~%" se-map)
   (format t "at-sem:done:final contents:~a~%" (se-contents se-map))
   se-map)
@@ -899,25 +899,6 @@ one, turn it into  TF returning an expr-map."
 
 (defun foldr-sem (k z se-map)
   (format t "foldr-sem:se-map:~a~%" se-map)
-  ;; (if (null list-map)
-  ;;     (progn
-  ;;       (format t "foldr-lm:null list-map~%")
-  ;;       z)
-  ;;     (with-accessors ((lm-nil lm-nil)
-  ;;                      (lm-cons lm-cons))
-  ;;         list-map
-  ;;       (format t "foldr-lm:lm-nil: ~a~%" lm-nil)
-  ;;       (format t "foldr-lm:lm-cons: ~a~%" lm-cons)
-  ;;       (labels ((kcons (m1 r)
-  ;;                  (format t "foldr-lm:kcons:m1:~a~%" m1)
-  ;;                  (format t "foldr-lm:kcons:r:~a~%" r)
-  ;;                  (foldr-tm k r m1)))
-  ;;         (let ((z1 (foldr-em #'kcons z lm-cons)))
-  ;;           (format t "foldr-lm:z1: ~a~%" z1)
-  ;;           (if (null lm-nil)
-  ;;               z1
-  ;;               (funcall k lm-nil z1))
-  ;;           ;; (foldr-tm k z1 lm-nil)
   (match (se-contents se-map)
     ('se-empty z)
 
@@ -925,7 +906,7 @@ one, turn it into  TF returning an expr-map."
      (funcall k v2 z))
 
     ((list 'se-multi tm) (foldr-tm k z tm))
-    (t (error "Unexpected se-map contents in foldr-sem: ~a" (se-contents se-map))))
+    (oops (error "Unexpected se-map contents in foldr-sem: ~a" oops)))
   )
 
 ;; ---------------------------------------------------------------------
@@ -971,3 +952,321 @@ one, turn it into  TF returning an expr-map."
     ))
 
 ;; ---------------------------------------------------------------------
+
+;; 3.8 Generic Programming
+;; P6
+
+;; Left as an exercise to the reader. :)
+
+;; ---------------------------------------------------------------------
+
+;; 4 Keys with binders
+;; P7
+
+;; type DBNum = Int
+;; data DBEnv = DBE { dbe_next :: DBNum, dbe_env :: Map Var DBNum }
+;;
+;; emptyDBE :: DBEnv
+;; emptyDBE = DBE { dbe_next = 1, dbe_env = Map.empty }
+;;
+;; extendDBE :: Var → DBEnv → DBEnv
+;; extendDBE v (DBE { dbe_next = n, dbe_env = dbe })
+;;   = DBE { dbe_next = n + 1, dbe_env = Map.insert v n dbe }
+;;
+;; lookupDBE :: Var → DBEnv → Maybe DBNum
+;; lookupDBE v (DBE { dbe_env = dbe }) = Map.lookup v dbe
+
+(defclass db-env ()
+  ((%dbe-next :accessor dbe-next :initform 1 :initarg :next)
+   (%dbe-env :accessor dbe-env :initform (make-hash-table :test 'equal) :initarg :env))
+  (:documentation "DBEnv"))
+
+(defun empty-dbe ()
+  (make-instance 'db-env))
+
+;; Via Google search hence Gemini
+(defun copy-hash-table (original-table)
+  "Creates a shallow copy of a hash table."
+  (let ((new-table (make-hash-table :test (hash-table-test original-table)
+                                    :size (hash-table-size original-table)
+                                    :rehash-size (hash-table-rehash-size original-table)
+                                    :rehash-threshold (hash-table-rehash-threshold original-table))))
+    (maphash #'(lambda (key value)
+                 (setf (gethash key new-table) value))
+             original-table)
+    new-table))
+
+(defmethod copy-db-env ((db-env db-env))
+  (make-instance 'db-env
+                 :next (dbe-next db-env)
+                 :env (copy-hash-table (dbe-env db-env))))
+
+(defmethod extend-dbe! (var (db-env db-env))
+  (with-accessors ((dbe-next dbe-next)
+                   (dbe-env dbe-env))
+      db-env
+    (setf dbe-next (+ 1 dbe-next))
+    (setf (gethash var dbe-env) dbe-next))
+  db-env)
+
+(defmethod extend-dbe (var (db-env db-env))
+  (let ((new-db-env (copy-db-env db-env)))
+    (extend-dbe! var new-db-env)
+    new-db-env))
+
+(defmethod lookup-dbe (var (db-env db-env))
+  (gethash var (dbe-env db-env)))
+
+;; ---------------------------------------------------------------------
+
+(defmethod my-pretty-print ((db-env db-env) &optional (depth 0) (stream t))
+  (format stream "~v,tDB-ENV:~a~%" depth db-env)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tDB-ENV-dbe-next:~a ~%" depth1 (dbe-next db-env))
+
+    (format stream "~v,tDB-ENV-dbe-env:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S . ~S)~%" depth1 k v))
+             (dbe-env db-env))))
+
+;; ---------------------------------------------------------------------
+
+;; data ModAlpha a = A DBEnv a
+
+(defclass mod-alpha ()
+  ((%ma-dbenv :accessor ma-dbe :initform (make-instance 'db-env) :initarg :dbenv)
+   (%ma-val :accessor ma-val :initform nil :initarg :val))
+  (:documentation "ModAlpha"))
+
+(defmethod my-pretty-print ((mod-alpha mod-alpha) &optional (depth 0) (stream t))
+  (format stream "~v,tMOD-ALPHA:~a~%" depth mod-alpha)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tMOD-ALPHA-ma-dbe:~a ~%" depth1 (ma-dbe mod-alpha))
+    (my-pretty-print (ma-dbe mod-alpha) (+ 2 depth1) stream)
+    (format stream "~v,tMOD-ALPHA-ma-val:~a ~%" depth1 (ma-val mod-alpha))
+    (my-pretty-print (ma-val mod-alpha) (+ 2 depth1) stream)))
+
+(defmethod ma-new (dbenv val)
+  (make-instance 'mod-alpha :dbenv dbenv :val val))
+
+(defmethod ma-val-new (val)
+  (make-instance 'mod-alpha :val val))
+
+;; type AlphaExpr = ModAlpha Expr
+(defclass alpha-expr (mod-alpha)
+  ()
+  (:documentation "AlphaExpr"))
+
+
+;; ---------------------------------------------------------------------
+
+;; P7
+;; ExprMap with binders and lambda's
+;;
+;; data Expr’ = App Expr Expr | Lam Expr | FVar Var | BVar BoundKey
+
+(defclass expra-map (trie-map)
+  (
+   ;; em_fvar :: Map Var v -- Free vars
+   (%ema-fvar :accessor ema-fvar :initform (make-hash-table :test 'equal))
+
+   ;; em_bvar :: Map BoundKey v -- Lambda-bound vars
+   (%ema-bvar :accessor ema-bvar :initform (make-hash-table :test 'equal))
+
+   ;; em_app :: ExprMap (ExprMap v)
+   (%ema-app :accessor ema-app :initform nil)
+
+   ;; em_lam :: ExprMap v
+   (%ema-lam :accessor ema-lam :initform nil))
+  (:documentation "ExprMap with binders and lambda"))
+
+(defun empty-ema ()
+  (format t "empty-ema called~%")
+  (empty-sem #'(lambda () (make-instance 'expra-map))))
+
+;; ---------------------------------------------------------------------
+
+(defmethod my-pretty-print ((expra-map expra-map) &optional (depth 0) (stream t))
+  (format stream "~v,tEXPRA-MAP:~a~%" depth expra-map)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tEXPRA-MAP-em-fvar:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S .~%" depth1 k)
+               (my-pretty-print v (+ 4 depth1) stream)
+               (format stream "~v,t  )~%" depth1))
+             (ema-fvar expra-map))
+    (format stream "~v,tEXPRA-MAP-em-bvar:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S .~%" depth1 k)
+               (my-pretty-print v (+ 4 depth1) stream)
+               (format stream "~v,t  )~%" depth1))
+             (ema-bvar expra-map))
+    (format stream "~v,tEXPRA-MAP-ema-app:~%" depth1)
+    (if (not (null (ema-app expra-map)))
+        (my-pretty-print (ema-app expra-map) (+ 2 depth1))
+        (format stream "~v,t  NIL~%" depth1))
+    (format stream "~v,tEXPRA-MAP-ema-lam:~%" depth1)
+    (if (not (null (ema-lam expra-map)))
+        (my-pretty-print (ema-lam expra-map) (+ 2 depth1))
+        (format stream "~v,t  NIL~%" depth1))
+    ))
+
+;; ---------------------------------------------------------------------
+
+;; type Var = String
+;; data Expr = App Expr Expr | Lam Var Expr | Var Var
+;;
+;; data ModAlpha a = A DBEnv a
+;; type AlphaExpr = ModAlpha Expr
+
+;; lkEM :: AlphaExpr → ExprMap' v → Maybe v
+(defmethod lk-ema (alpha-expr (expra-map expra-map))
+  "Look up EXPR in EXPRA-MAP."
+  (format t "alpha-expr: ~a~%" alpha-expr)
+  (format t "expra-map: ~a~%" expra-map)
+  (with-accessors ((ema-fvar ema-fvar)
+                   (ema-bvar ema-bvar)
+                   (ema-app ema-app)
+                   (ema-lam ema-lam))
+      expra-map
+    (format t "ema-fvar: ~a~%" ema-fvar)
+    (format t "ema-bvar: ~a~%" ema-bvar)
+    (format t "ema-app: ~a~%" ema-app)
+    (format t "ema-lam: ~a~%" ema-lam)
+
+    (match (ma-val alpha-expr)
+      ((list :var v)
+       (let ((bv (lookup-dbe v (ma-dbe alpha-expr))))
+         (if (null bv)
+             (gethash v ema-fvar)
+             (gethash bv ema-bvar))))
+
+      ((list :app e1 e2)
+       ;; App e1 e2 → em_app >>> lkTM (A bve e1 ) >=> lkTM (A bve e2 )
+       (let ((ae1 (ma-new (ma-dbe alpha-expr) e1))
+             (ae2 (ma-new (ma-dbe alpha-expr) e2)))
+         (if (not (null ema-app))
+             (let ((m1 (lk-tm ae1 ema-app)))
+               (format t "m1: ~a~%" m1)
+               (cond
+                 ((null m1) nil)
+                 (t (lk-tm ae2 m1))))
+             nil)))
+
+      ((list :lam v e)
+       ;; Lam v e → em_lam >>> lkTM (A (extendDBE v bve) e)
+       (if (not (null ema-lam))
+           (let* ((bve2 (extend-dbe v (ma-dbe alpha-expr)))
+                  (ae (ma-new bve2 e)))
+             (lk-tm ae ema-lam))
+           nil))
+
+      (oops (error "match failed~a ~%" oops)))))
+
+
+;; ---------------------------------------------------------------------
+
+(defun lift-tf-ema (f)
+  "Take a function F which takes an expra-map as an argument and returns
+one, turn it into  TF returning an expra-map."
+  (lambda (em)
+    (declare (type (or null expr-map) em))
+    (let ((em2 (if (null em) (empty-ema) em)))
+      (funcall f em2)
+      em2)))
+
+(defmethod at-ema (alpha-expr tf (expra-map expra-map))
+  "Alter EXPRA-MAP at ALPHA-EXPR using update function TF."
+  (with-accessors ((ema-fvar ema-fvar)
+                   (ema-bvar ema-bvar)
+                   (ema-app ema-app)
+                   (ema-lam ema-lam))
+      expra-map
+    (format t "at-ema: entry:alpha-expr:~a~%" alpha-expr)
+    (format t "at-ema: entry:alpha-expr:val:~a~%" (ma-val alpha-expr))
+    (my-pretty-print expra-map 0)
+    (format t "at-ema: entry done~%")
+    (match (ma-val alpha-expr)
+      ((list :var v)
+       (format t "at-ema:var:v: ~a~%" v)
+       (format t "at-ema:var:ema-fvar: ~a~%" ema-fvar)
+       (format t "at-ema:var:ema-bvar: ~a~%" ema-bvar)
+       (let ((bv (lookup-dbe v (ma-dbe alpha-expr))))
+         (if (null bv)
+             (alter-map tf v ema-fvar)
+             (alter-map tf v ema-bvar))))
+
+      ((list :app e1 e2)
+       (let ((ae1 (ma-new (ma-dbe alpha-expr) e1))
+             (ae2 (ma-new (ma-dbe alpha-expr) e2)))
+
+         (let ((ema-app2 (if (null ema-app) (empty-ema) ema-app)))
+           (setf ema-app (at-tm ae1 (lift-tf-ema (lambda (em) (at-tm ae2 tf em))) ema-app2))
+           (my-pretty-print ema-app 0)
+           )))
+
+      ((list :lam v e)
+       (format t "at-ema:lam:v: ~a~%" v)
+       (format t "at-ema:lam:e: ~a~%" e)
+       (let* ((bve2 (extend-dbe v (ma-dbe alpha-expr)))
+              (ae (ma-new bve2 e)))
+         (format t "at-ema:lam:bve2: ~a~%" bve2)
+         (my-pretty-print bve2)
+         (let ((ema-lam2 (if (null ema-lam) (empty-ema) ema-lam)))
+           (setf ema-lam (at-tm ae tf ema-lam2))
+           (format t "at-ema:lam:ema-lam: ~a~%" ema-lam)
+           (my-pretty-print ema-lam 0))))
+
+      (oops (format t "at-ema:match failing:~a~%" oops)
+            (error "match failed: ~a ~%" oops)))
+
+    (format t "at-ema: exiting~%")
+    (my-pretty-print expra-map 0)
+    (format t "at-ema: exiting done~%")
+    expra-map))
+
+;; ---------------------------------------------------------------------
+;; trie-map generic methods for expra-map
+
+;; (defmethod empty-tm ((expra-map expr-map))
+;;   (empty-ema))
+
+(defmethod lk-tm (key (expra-map expra-map))
+  (lk-ema key expra-map))
+
+(defmethod at-tm (key f (expra-map expra-map))
+  (at-ema key f expra-map))
+
+;; ---------------------------------------------------------------------
+
+(defun t9 ()
+  (let ((test-em (empty-ema)))
+    (format t "1------------------------------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+
+    (format t "2------------------------------------------~%")
+    (insert-tm  (ma-val-new '(:lam "x" (:app (:var "fx") (:var "x")))) 'v1 test-em)
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+
+    (format t "3------------------------------------------~%")
+    (insert-tm (ma-val-new '(:lam "y" (:app (:var "fy") (:var "y")))) 'vz test-em)
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+
+    ;; Note: if (2) and (3) above both use "f" instead of "fx", "fy", it collapses into a single entry.
+    ;;       As expected, since then it is just alpha-renaming
+
+    ;; (format t "4------------------------------------------~%")
+    ;; (format t "count:~a~%"
+    ;;         (foldr-tm (lambda (v r)
+    ;;                     (format t "t7:v:~a~%" v)
+    ;;                     (format t "t7:r:~a~%" r)
+    ;;                     (+ r 1))
+    ;;                   0 test-em))
+    ;; (format t "5------------------------------------------~%")
+    ;; (format t "elems:~a~%" (elems-em test-em))
+    ))
