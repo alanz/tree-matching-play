@@ -387,7 +387,7 @@ This is such that foldr f z == foldr f z . elems."
                    (format t "foldr-lm:kcons:m1:~a~%" m1)
                    (format t "foldr-lm:kcons:r:~a~%" r)
                    (foldr-tm k r m1)))
-          (let ((z1 (foldr-em #'kcons z lm-cons)))
+          (let ((z1 (if (null lm-cons) z (foldr-tm #'kcons z lm-cons))))
             (format t "foldr-lm:z1: ~a~%" z1)
             (if (null lm-nil)
                 z1
@@ -899,6 +899,7 @@ one, turn it into  TF returning an expr-map."
 
 (defun foldr-sem (k z se-map)
   (format t "foldr-sem:se-map:~a~%" se-map)
+  (format t "foldr-sem:se-map:contents:~a~%" (se-contents se-map))
   (match (se-contents se-map)
     ('se-empty z)
 
@@ -1226,6 +1227,39 @@ one, turn it into  TF returning an expra-map."
     expra-map))
 
 ;; ---------------------------------------------------------------------
+
+(defun foldr-ema (k z expra-map)
+  (format t "foldr-ema:expra-map:~a~%" expra-map)
+  (if (null expra-map)
+      (progn
+        (format t "foldr-ema:null expra-map~%")
+        z)
+      (with-accessors ((ema-fvar ema-fvar)
+                       (ema-bvar ema-bvar)
+                       (ema-app ema-app)
+                       (ema-lam ema-lam))
+          expra-map
+        (format t "foldr-ema:em-app:~a~%" ema-app)
+        (format t "foldr-ema:em-lam:~a~%" ema-lam)
+        (format t "foldr-ema:em-fvar:~a~%" ema-fvar)
+        (format t "foldr-ema:em-bvar:~a~%" ema-bvar)
+        (my-pretty-print ema-lam)
+        (labels ((kapp (m1 r)
+                   (format t "foldr-ema:kapp:m1:~a~%" m1)
+                   (format t "foldr-ema:kapp:r:~a~%" r)
+                   (foldr-tm k r m1)))
+          (let* ((z1 (if (null ema-app) z (foldr-tm #'kapp z ema-app)))
+                 (z2 (if (null ema-lam) z1 (foldr-tm k z1 ema-lam)))
+                 (z3 (if (null ema-fvar)
+                         z2
+                         (progn
+                           (format t "foldr-ema:calc z3:z2:~a~%" z2)
+                           (format t "foldr-ema:calc z3:ema-fvar:~a~%" ema-fvar)
+                           (hash-table-foldr k z2 ema-fvar)))))
+            (if (null ema-bvar) z3 (hash-table-foldr k z3 ema-bvar)))))))
+
+;; ---------------------------------------------------------------------
+
 ;; trie-map generic methods for expra-map
 
 ;; (defmethod empty-tm ((expra-map expr-map))
@@ -1236,6 +1270,9 @@ one, turn it into  TF returning an expra-map."
 
 (defmethod at-tm (key f (expra-map expra-map))
   (at-ema key f expra-map))
+
+(defmethod foldr-tm (k z (expra-map expra-map))
+  (foldr-ema k z expra-map))
 
 ;; ---------------------------------------------------------------------
 
@@ -1260,13 +1297,13 @@ one, turn it into  TF returning an expra-map."
     ;; Note: if (2) and (3) above both use "f" instead of "fx", "fy", it collapses into a single entry.
     ;;       As expected, since then it is just alpha-renaming
 
-    ;; (format t "4------------------------------------------~%")
-    ;; (format t "count:~a~%"
-    ;;         (foldr-tm (lambda (v r)
-    ;;                     (format t "t7:v:~a~%" v)
-    ;;                     (format t "t7:r:~a~%" r)
-    ;;                     (+ r 1))
-    ;;                   0 test-em))
+    (format t "4------------------------------------------~%")
+    (format t "count:~a~%"
+            (foldr-tm (lambda (v r)
+                        (format t "t7:v:~a~%" v)
+                        (format t "t7:r:~a~%" r)
+                        (+ r 1))
+                      0 test-em))
     ;; (format t "5------------------------------------------~%")
     ;; (format t "elems:~a~%" (elems-em test-em))
     ))
