@@ -430,15 +430,15 @@ This is such that foldr f z == foldr f z . elems."
             (format t "foldr-em:z2:~a~%" z2)
             (hash-table-foldr k z2 em-var))))))
 
-(defun size-em (expr-map)
-  (foldr-em (lambda (v r)
+(defun size-tm (trie-map)
+  (foldr-tm (lambda (v r)
               (declare (ignore v))
               (+ r 1))
-            0 expr-map))
+            0 trie-map))
 
-(defun elems-em (expr-map)
+(defun elems-tm (trie-map)
   (foldr-tm (lambda (v r) (cons v r))
-            nil expr-map))
+            nil trie-map))
 
 (defun t6 ()
   (setf test-em (empty-em))
@@ -457,7 +457,7 @@ This is such that foldr f z == foldr f z . elems."
                       (+ r 1))
                     0 test-em))
 
-  (format t "elems:~a~%" (elems-em test-em)))
+  (format t "elems:~a~%" (elems-tm test-em)))
 
 ;; ---------------------------------------------------------------------
 ;; Section 3.6 A type class for triemaps
@@ -554,7 +554,7 @@ one, turn it into  TF returning an TRIE-MAP."))
                         (+ r 1))
                       0 test-tm))
 
-    (format t "elems:~a~%" (elems-em test-tm))))
+    (format t "elems:~a~%" (elems-tm test-tm))))
 
 ;; ---------------------------------------------------------------------
 ;; ListMap
@@ -949,7 +949,7 @@ one, turn it into  TF returning an expr-map."
                         (+ r 1))
                       0 test-em))
     (format t "5------------------------------------------~%")
-    (format t "elems:~a~%" (elems-em test-em))
+    (format t "elems:~a~%" (elems-tm test-em))
     ))
 
 ;; ---------------------------------------------------------------------
@@ -1304,6 +1304,6 @@ one, turn it into  TF returning an expra-map."
                         (format t "t7:r:~a~%" r)
                         (+ r 1))
                       0 test-em))
-    ;; (format t "5------------------------------------------~%")
-    ;; (format t "elems:~a~%" (elems-em test-em))
+    (format t "5------------------------------------------~%")
+    (format t "elems:~a~%" (elems-tm test-em))
     ))
