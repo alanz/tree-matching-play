@@ -978,7 +978,7 @@ one, turn it into  TF returning an expr-map."
 ;; lookupDBE v (DBE { dbe_env = dbe }) = Map.lookup v dbe
 
 (defclass db-env ()
-  ((%dbe-next :accessor dbe-next :initform 1 :initarg :next)
+  ((%dbe-next :accessor dbe-next :initform 0 :initarg :next)
    (%dbe-env :accessor dbe-env :initform (make-hash-table :test 'equal) :initarg :env))
   (:documentation "DBEnv"))
 
@@ -1006,9 +1006,13 @@ one, turn it into  TF returning an expr-map."
   (with-accessors ((dbe-next dbe-next)
                    (dbe-env dbe-env))
       db-env
-    (setf dbe-next (+ 1 dbe-next))
-    (setf (gethash var dbe-env) dbe-next))
+    (setf (gethash var dbe-env) dbe-next)
+    (setf dbe-next (+ 1 dbe-next)))
   db-env)
+
+(defmethod extend-dbe-maybe! (var (db-env db-env))
+  (if (not (lookup-dbe var db-env))
+      (extend-dbe! var db-env)))
 
 (defmethod extend-dbe (var (db-env db-env))
   (let ((new-db-env (copy-db-env db-env)))
@@ -1018,6 +1022,7 @@ one, turn it into  TF returning an expr-map."
 (defmethod lookup-dbe (var (db-env db-env))
   (gethash var (dbe-env db-env)))
 
+
 ;; ---------------------------------------------------------------------
 
 (defmethod my-pretty-print ((db-env db-env) &optional (depth 0) (stream t))
@@ -1026,9 +1031,11 @@ one, turn it into  TF returning an expr-map."
     (format stream "~v,tDB-ENV-dbe-next:~a ~%" depth1 (dbe-next db-env))
 
     (format stream "~v,tDB-ENV-dbe-env:~%" depth1)
-    (maphash (lambda (k v)
-               (format stream "~v,t  (~S . ~S)~%" depth1 k v))
-             (dbe-env db-env))))
+    (if (equal 0 (hash-table-count (dbe-env db-env)))
+        (format stream "~v,tEMPTY~%" (+ 2 depth1))
+        (maphash (lambda (k v)
+                   (format stream "~v,t  (~S . ~S)~%" depth1 k v))
+                 (dbe-env db-env)))))
 
 ;; ---------------------------------------------------------------------
 
@@ -1306,4 +1313,409 @@ one, turn it into  TF returning an expra-map."
                       0 test-em))
     (format t "5------------------------------------------~%")
     (format t "elems:~a~%" (elems-tm test-em))
+    ))
+
+;; ---------------------------------------------------------------------
+;;======================================================================
+;; P7
+;; 5. Tries that match
+
+;; p8
+;; 5.2 Matching Expressions
+
+;; matchE :: PatExpr → AlphaExpr → MatchME ()
+
+;; p8
+;; 5.2.1 Patterns
+
+;; data PatExpr = P PatKeys AlphaExpr
+;; type PatKeys = Map PatVar PatKey
+;; type PatVar = Var
+;; type PatKey = DBNum
+
+;; NOTE: Canonicalize DBNums by doing a left-to-right scan of the
+;; AlphaExpr, numbering the vars in the order of occurrence.
+
+;; In practical terms, input is the list of vars and the AlphaExpr,
+;; calculate DBNums as pre-process
+
+;; p8
+;; 5.2.2 The matching monad
+
+;; type MatchME v = StateT SubstE [] v
+;; type SubstE = Map PatKey Expr
+
+;; runMatchExpr :: MatchME v → [(SubstE, v)]
+;;    runs a MatchME computation, starting with an empty SubstE,
+;;    and returning a list of all the successful (SubstE, v) matches
+
+;; liftMaybe :: Maybe v → MatchME v
+
+;; refineMatch :: (SubstE → Maybe SubstE) → MatchME ()
+;;    extends the current substitution by applying f to it;
+;;    if the result is Nothing the match fails;
+;;    otherwise it turns a single match with the new substitution
+
+;; ---------------------------------------------------------------------
+;; p8
+;; 5.3 Matching tries for AlphaExpr
+
+(defclass mexpr-map (m-trie-map)
+  (
+   ;; mm_fvar :: Map Var v -- Free vars
+   (%mm-fvar :accessor mm-fvar :initform (make-hash-table :test 'equal))
+
+   ;; mm_bvar :: Map BoundKey v -- Bound vars
+   (%mm-bvar :accessor mm-bvar :initform (make-hash-table :test 'equal))
+
+   ;; mm_pvar :: Map PatKey v -- Pattern vars
+   (%mm-pvar :accessor mm-pvar :initform (make-hash-table :test 'equal))
+
+   ;; mm_app :: MExprMap (MExprMap v)
+   (%mm-app :accessor mm-app :initform nil)
+
+   ;; em_lam :: MExprMap v
+   (%mm-lam :accessor mm-lam :initform nil))
+  (:documentation "MExprMap for matching"))
+
+(defun empty-mm ()
+  (format t "empty-mm called~%")
+  (make-instance 'mexpr-map))
+
+;; ---------------------------------------------------------------------
+
+(defmethod my-pretty-print ((mexpr-map mexpr-map) &optional (depth 0) (stream t))
+  (format stream "~v,tMEXPR-MAP:~a~%" depth mexpr-map)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tMEXPR-MAP-em-fvar:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S .~%" depth1 k)
+               (my-pretty-print v (+ 4 depth1) stream)
+               (format stream "~v,t  )~%" depth1))
+             (mm-fvar mexpr-map))
+    (format stream "~v,tMEXPR-MAP-em-bvar:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S .~%" depth1 k)
+               (my-pretty-print v (+ 4 depth1) stream)
+               (format stream "~v,t  )~%" depth1))
+             (mm-bvar mexpr-map))
+    (format stream "~v,tMEXPR-MAP-em-pvar:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S .~%" depth1 k)
+               (my-pretty-print v (+ 4 depth1) stream)
+               (format stream "~v,t  )~%" depth1))
+             (mm-pvar mexpr-map))
+    (format stream "~v,tMEXPR-MAP-mm-app:~%" depth1)
+    (if (not (null (mm-app mexpr-map)))
+        (my-pretty-print (mm-app mexpr-map) (+ 2 depth1))
+        (format stream "~v,t  NIL~%" depth1))
+    (format stream "~v,tMEXPR-MAP-mm-lam:~%" depth1)
+    (if (not (null (mm-lam mexpr-map)))
+        (my-pretty-print (mm-lam mexpr-map) (+ 2 depth1))
+        (format stream "~v,t  NIL~%" depth1))
+    ))
+
+;; ---------------------------------------------------------------------
+;; Forward declaration from 5.5 (p10)
+
+(defclass m-trie-map ()
+  ()
+  (:documentation "Base class for MTrieMap implementations."))
+
+(defgeneric lk-mtm (match-key m-trie-map)
+  (:documentation "Looks up MATCH-KEY in M-TRIE-MAP. Returns the value or NIL if not found."))
+
+(defgeneric at-mtm (pat-key tf m-trie-map)
+  (:documentation "Alter the value at PAT-KEY in M-TRIE-MAP, by applying TF to it."))
+
+;; AZ note: Need to fit Matchable class in somehow. Likely just with a
+;; new generic function on m-trie-map
+
+;; ---------------------------------------------------------------------
+
+(defmethod insert-mtm (key v (m-trie-map m-trie-map))
+  "Insert V as the value for KEY in TM."
+  (at-mtm key (lambda (x)
+                (declare (ignore x))
+                v)
+          m-trie-map))
+
+;; ---------------------------------------------------------------------
+
+;; lookupPatMM :: ∀v. AlphaExpr → MExprMap v → MatchME v
+;; lookupPatMM ae@(A bve e) EmptyMEM = mzero
+;; lookupPatMM ae@(A bve e) (SingleSEM pat val)
+;;   = matchE pat ae >> pure val
+;; lookupPatMM ae@(A bve e) (MultiMEM { .. })
+;;   = rigid `mplus` flexi
+;;   where
+;;     rigid = case e of
+;;       Var x → case lookupDBE x bve of
+;;                 Just bv → mm_bvar ⊲ liftMaybe ◦ Map.lookup bv
+;;                 Nothing → mm_fvar ⊲ liftMaybe ◦ Map.lookup x
+;;       App e1 e2 → mm_app ⊲ lkMTM (A bve e1 )
+;;                         >=> lkMTM (A bve e2 )
+;;       Lam x e → mm_lam ⊲ lkMTM (A (extendDBE x bve) e)
+;;
+;;     flexi = mm_pvar ⊲ IntMap.toList ⊲ map match_one ⊲ msum
+;;
+;;     match_one :: (PatVar, v) → MatchME v
+;;     match_one (pv, v) = matchPatVarE pv ae >> pure v
+
+(defun lookup-pat-mm (alpha-expr mexpr-map)
+  (error "lookup-pat-mm"))
+
+;; -------------------------------------
+
+;; matchPatVarE :: PatKey → AlphaExpr → MatchME ()
+;; matchPatVarE pv (A bve e) = refineMatch $ 𝜆ms →
+;;   case Map.lookup pv ms of
+;;     Nothing -- pv is not bound
+;;       | noCaptured bve e → Just (Map.insert pv e ms)
+;;       | otherwise → Nothing
+;;     Just sol -- pv is already bound
+;;       | noCaptured bve e
+;;       , eqExpr e sol → Just ms
+;;       | otherwise → Nothing
+;;
+;; eqExpr :: Expr → Expr → Bool
+;; noCaptured :: DBEnv → Expr → Bool
+
+;; ---------------------------------------------------------------------
+;; P9
+;; 5.4 External API
+
+;; Conceptual
+;; type PatMap :: Type → Type
+;; alterPM :: ([Var], Expr) → TF v → PatMap v → PatMap v
+;; lookupPM :: Expr → PatMap v → [(PatSubst, v)]
+;; type PatSubst = [(Var, Expr)]
+
+;; Actual
+
+;; type PatMap v = MExprMap (PatKeys, v)
+
+(defclass pat-map (mexpr-map)
+  ()
+  (:documentation "MExprMap (PatKeys, v)"))
+
+(defun empty-patm ()
+  (format t "empty-patm called~%")
+  (empty-mm))
+
+;; ---------------------------------------------------------------------
+;; p9
+;;
+
+;; canonPatKeys :: [Var] → Expr → PatKeys
+;; where
+;;   data ModAlpha a = A DBEnv a
+;;   type AlphaExpr = ModAlpha Expr
+;;   data PatExpr = P PatKeys AlphaExpr
+;;   type PatKeys = Map PatVar PatKey
+;;   type PatVar = Var
+;;   type PatKey = DBNum
+
+;; ---------------------------------------------------------------------
+
+;; data ModAlpha a = A DBEnv a
+;; data PatExpr    = P PatKeys AlphaExpr
+
+(defclass pat-expr ()
+  ((%pe-keys :accessor pe-keys :initform (make-instance 'db-env) :initarg :keys)
+   (%pe-val :accessor pe-val :initform nil :initarg :val))
+  (:documentation "ModAlpha"))
+
+(defmethod my-pretty-print ((pat-expr pat-expr) &optional (depth 0) (stream t))
+  (format stream "~v,tPAT-EXPR:~a~%" depth pat-expr)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tPAT-EXPR-pe-keys:~a ~%" depth1 (pe-keys pat-expr))
+    (my-pretty-print (pe-keys pat-expr) (+ 2 depth1) stream)
+    (format stream "~v,tPAT-EXPR-pe-val:~a ~%" depth1 (pe-val pat-expr))
+    (my-pretty-print (pe-val pat-expr) (+ 2 depth1) stream)))
+
+(defmethod pe-new (keys val)
+  (make-instance 'pat-expr :keys keys :val val))
+
+(defmethod pe-val-new (val)
+  (make-instance 'pat-expr :val val))
+
+;; ---------------------------------------------------------------------
+;; The auxiliary function canonPatKeys takes the client-side pattern
+;; (pvars, e), and returns a PatKeys (Section 5.2.1) that maps each
+;; pattern variable to its canonical de Bruijn index. canonPatKeys is
+;; entirely straightforward: it simply walks the expression, numbering
+;; off the pattern variables in left-to-right order.
+;; canonPatKeys :: [Var] → Expr → PatKeys
+(defun canon-pat-keys (vars expr)
+  (let ((dbenv (empty-dbe)))
+    (labels ((do-it (expr1)
+               ;; (format t "canon-pat-keys:expr1:~a~%" expr1)
+               (match expr1
+                 ((list :var v)
+                  (extend-dbe-maybe! v dbenv))
+
+                 ((list :app e1 e2)
+                  (do-it e1)
+                  (do-it e2))
+
+                 ((list :lam v e)
+                  (extend-dbe! v dbenv)
+                  (do-it e))
+
+                 (oops (error "match failed~a ~%" oops)))))
+      (do-it expr))
+    (let ((r (make-hash-table :test 'equal)))
+      (dolist (var vars r)
+        (setf (gethash var r) (lookup-dbe var dbenv))))))
+
+(defun t10 ()
+  ;; Original pattern   Canonical PatExpr
+  ;; ([a, b], f a b a)  P [a ↦ 1, b ↦ 2] (f a b a)
+  ;; ([x, g], f (g x))  P [x ↦ 2, g ↦ 1] (f (g x))
+  (format t "1------------------------------------------~%")
+  (let ((pat-keys
+          (canon-pat-keys
+           (list "y")
+           '(:lam "y" (:app (:var "fy") (:var "y"))))))
+    (my-pretty-print pat-keys))
+  (format t "2------------------------------------------~%")
+  (let ((pat-keys
+          ;; ([a, b], f a b a)  P [a ↦ 1, b ↦ 2] (f a b a)
+          (canon-pat-keys
+           (list "a" "b")
+           '(:app
+             (:var "f")
+             (:app (:var "a")
+              (:app (:var "b") (:var "a")))))))
+    (my-pretty-print pat-keys))
+  (format t "3------------------------------------------~%")
+  (let ((pat-keys
+          ;; ([x, g], f (g x))  P [x ↦ 2, g ↦ 1] (f (g x))
+          (canon-pat-keys
+           (list "x" "g")
+           '(:app
+             (:var "f")
+             (:app (:var "g") (:var "x"))))))
+    (my-pretty-print pat-keys)))
+
+
+;; ---------------------------------------------------------------------
+
+;; Then we can simply call the internal atMTM function,
+;; passing it a canonical pat :: PatExpr and a transformer ptf ::
+;; TF (PatKeys, v) that will pair the PatKeys with the value
+;; supplied by the user via tf :: TF v
+;; Hence
+;;   atMTM :: PatExpr -> TF (PatKeys, v) -> ?
+;; (defun at-mtm (pt-expr tf pat-map)
+;;   (error "at-mtm called"))
+
+;; ---------------------------------------------------------------------
+;; alterPM :: ∀v. ([Var], Expr) → TF v → PatMap v → PatMap v
+;; alterPM (pvars, e) tf pm = atMTM pat ptf pm
+;;   where
+;;     pks :: PatKeys = canonPatKeys pvars e
+;;     pat :: PatExpr = P pks (A emptyDBE e)
+;;
+;;     ptf :: TF (PatKeys, v)
+;;     ptf Nothing       = fmap (𝜆v → (pks, v)) (tf Nothing)
+;;     ptf (Just (_, v)) = fmap (𝜆v → (pks, v)) (tf (Just v))
+
+(defun alter-pm (pvars e tf pm)
+  (format t "alter-pm:pm:~a~%" pm)
+  (let* ((pks (canon-pat-keys pvars e))
+         (pa (ma-val-new e))
+         (pat (pe-new pks pa)))
+    (format t "alter-pm:pks:~a~%" pks)
+    (format t "alter-pm:pa:~a~%" pa)
+    (format t "alter-pm:pat:~a~%" pat)
+    (labels ((ptf (m)
+               (error "ptf")))
+      (at-mtm pat #'ptf pm))))
+
+(defun insert-pm (pvars e v pm)
+  (alter-pm pvars e
+            (lambda (x)
+              (declare (ignore x))
+              v)
+            pm))
+
+;; ---------------------------------------------------------------------
+
+;; type SubstE = Map PatKey Expr
+;; runMatchExpr :: MatchME v → [(SubstE, v)]
+
+;; runMatchExpr runs a MatchME computation, starting with an empty
+;; SubstE, and returning a list of all the successful (SubstE, v)
+;; matches.
+(defun run-match-expr (me)
+  ;; MatchME v is a function taking a substitution (of type SubstE) for
+  ;; pattern variables, and yielding a possibly-empty list of values (of
+  ;; type v), each paired with an extended SubstE
+  (let ((subst-e (make-hash-table :test 'equal)))
+    (funcall me subst-e)))
+
+;; ---------------------------------------------------------------------
+
+;; lookupPM :: Expr → PatMap v → [(PatSubst, v)]
+;; lookupPM e pm
+;;   = [ (Map.toList (subst ‘Map.compose‘ pks), x)
+;;     | (subst, (pks, x)) ← runMatchExpr $
+;;                           lkMTM (A emptyDBE e) pm]
+(defun lookup-pm (expr pm)
+  (run-match-expr (lambda () (lk-mtm (ma-val-new expr) pm))))
+
+;; ---------------------------------------------------------------------
+
+;; trie-map generic methods for pat-map
+
+;; (defmethod empty-tm ((expra-map expr-map))
+;;   (empty-ema))
+
+;; (defmethod lk-tm (key (expra-map expra-map))
+;;   (lk-ema key expra-map))
+
+(defmethod at-tm (key f (expra-map expra-map))
+  (at-ema key f expra-map))
+
+;; (defmethod foldr-tm (k z (expra-map expra-map))
+;;   (foldr-ema k z expra-map))
+
+;; ---------------------------------------------------------------------
+;; m-trie-map instances for mexpr-map
+
+(defmethod at-mtm (pat-key tf (mexpr-map mexpr-map))
+  (format t "at-mtm:mexpr-map:pat-key:~a~%" pat-key)
+  (my-pretty-print pat-key)
+  )
+;; ---------------------------------------------------------------------
+;; m-trie-map instances for pat-map
+
+
+;; (defgeneric at-mtm (pat-key tf m-trie-map)
+;;   (:documentation "Alter the value at PAT-KEY in M-TRIE-MAP, by applying TF to it."))
+(defmethod at-mtm (pat-key tf (pat-map pat-map))
+  (format t "at-mtm:pat-map:pat-key:~a~%" pat-key)
+  )
+
+;; (defgeneric lk-mtm (match-key m-trie-map)
+;;   (:documentation "Looks up MATCH-KEY in M-TRIE-MAP. Returns the value or NIL if not found."))
+;; (defmethod lk-mtm (match-key (mexpr-map mexpr-map))
+;;   (lookup-pat-mm match-key mexpr-map))
+
+;; ---------------------------------------------------------------------
+
+(defun t11 ()
+  (let ((test-em (empty-patm)))
+    (format t "1------------------------------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+
+    (format t "2------------------------------------------~%")
+    (insert-pm  (list "fx") '(:lam "x" (:app (:var "fx") (:var "x"))) 'v1 test-em)
+    (format t "test-em:--------------------~%")
+    (format t "test-em: ~a~%" test-em)
+    (my-pretty-print test-em 0)
+
     ))
