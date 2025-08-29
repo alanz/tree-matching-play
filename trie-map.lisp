@@ -1622,9 +1622,11 @@ one, turn it into  TF returning an expra-map."
 ;;     ptf Nothing       = fmap (𝜆v → (pks, v)) (tf Nothing)
 ;;     ptf (Just (_, v)) = fmap (𝜆v → (pks, v)) (tf (Just v))
 
-(defun alter-pm (pvars e tf pm)
+(defun alter-pm (pvars-e tf pm)
   (format t "alter-pm:pm:~a~%" pm)
-  (let* ((pks (canon-pat-keys pvars e))
+  (let* ((pvars (first pvars-e))
+         (e (second pvars-e))
+         (pks (canon-pat-keys pvars e))
          (pa (ma-val-new e))
          (pat (pe-new pks pa)))
     (format t "alter-pm:pks:~a~%" pks)
@@ -1635,7 +1637,7 @@ one, turn it into  TF returning an expra-map."
       (at-mtm pat #'ptf pm))))
 
 (defun insert-pm (pvars e v pm)
-  (alter-pm pvars e
+  (alter-pm (list pvars e)
             (lambda (x)
               (declare (ignore x))
               v)
