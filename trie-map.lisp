@@ -1097,13 +1097,13 @@ one, turn it into  TF returning an expr-map."
 (defmethod my-pretty-print ((expra-map expra-map) &optional (depth 0) (stream t))
   (format stream "~v,tEXPRA-MAP:~a~%" depth expra-map)
   (let ((depth1 (+ 2 depth)))
-    (format stream "~v,tEXPRA-MAP-em-fvar:~%" depth1)
+    (format stream "~v,tEXPRA-MAP-ema-fvar:~%" depth1)
     (maphash (lambda (k v)
                (format stream "~v,t  (~S .~%" depth1 k)
                (my-pretty-print v (+ 4 depth1) stream)
                (format stream "~v,t  )~%" depth1))
              (ema-fvar expra-map))
-    (format stream "~v,tEXPRA-MAP-em-bvar:~%" depth1)
+    (format stream "~v,tEXPRA-MAP-ema-bvar:~%" depth1)
     (maphash (lambda (k v)
                (format stream "~v,t  (~S .~%" depth1 k)
                (my-pretty-print v (+ 4 depth1) stream)
@@ -1374,7 +1374,7 @@ one, turn it into  TF returning an expra-map."
    ;; mm_app :: MExprMap (MExprMap v)
    (%mm-app :accessor mm-app :initform nil)
 
-   ;; em_lam :: MExprMap v
+   ;; mm_lam :: MExprMap v
    (%mm-lam :accessor mm-lam :initform nil))
   (:documentation "MExprMap for matching"))
 
@@ -1599,6 +1599,64 @@ one, turn it into  TF returning an expra-map."
              (:app (:var "g") (:var "x"))))))
     (my-pretty-print pat-keys)))
 
+;; ---------------------------------------------------------------------
+
+
+(defmethod at-mm (pat-key tf (mexpr-map mexpr-map))
+  "Alter MEXPR-MAP at PAT-KEY using update function TF."
+  (with-accessors ((mm-fvar mm-fvar)
+                   (mm-bvar mm-bvar)
+                   (mm-pvar mm-pvar)
+                   (mm-app mm-app)
+                   (mm-lam mm-lam))
+      mexpr-map
+    (format t "at-mm: entry:pat-key:~a~%" pat-key)
+    (format t "at-mm: entry:pat-key:val:~a~%" (ma-val (pe-val pat-key)))
+    (my-pretty-print mexpr-map 0)
+    (format t "at-mm: entry done~%")
+    (match (ma-val (pe-val pat-key))
+      ((list :var v)
+       (format t "at-mm:var:v: ~a~%" v)
+       (format t "at-mm:var:mm-fvar: ~a~%" mm-fvar)
+       (format t "at-mm:var:mm-bvar: ~a~%" mm-bvar)
+       (let ((bv (lookup-dbe v (ma-dbe pat-key))))
+         (if (null bv)
+             (alter-map tf v mm-fvar)
+             (alter-map tf v mm-bvar))))
+
+      ((list :app e1 e2)
+       (let ((ae1 (ma-new (ma-dbe (pe-val pat-key)) e1))
+             (ae2 (ma-new (ma-dbe (pe-val pat-key)) e2)))
+
+         (let ((mm-app2 (if (null mm-app) (empty-ema) mm-app)))
+           (setf mm-app (at-tm ae1 (lift-tf-ema (lambda (em) (at-tm ae2 tf em))) mm-app2))
+           (my-pretty-print mm-app 0)
+           )))
+
+      ((list :lam v e)
+       (format t "at-mm:lam:v: ~a~%" v)
+       (format t "at-mm:lam:e: ~a~%" e)
+       (let* ((bve2 (extend-dbe v (ma-dbe (pe-val pat-key))))
+              (ae (ma-new bve2 e)))
+         (format t "at-mm:lam:bve2: ~a~%" bve2)
+         (my-pretty-print bve2)
+         (let ((mm-lam2 (if (null mm-lam) (empty-ema) mm-lam)))
+           (setf mm-lam (at-tm ae tf mm-lam2))
+           (format t "at-mm:lam:mm-lam: ~a~%" mm-lam)
+           (my-pretty-print mm-lam 0))))
+
+      (oops (format t "at-mm:match failing:~a~%" oops)
+            (error "match failed: ~a ~%" oops)))
+
+    (format t "at-mm: exiting~%")
+    (my-pretty-print mexpr-map 0)
+    (format t "at-mm: exiting done~%")
+    mexpr-map))
+
+(defmethod at-tm (pat tf (mexpr-map mexpr-map))
+  (format t "at-tm:mexpr-map:map ~a~%" mexpr-map)
+  (my-pretty-print mexpr-map)
+  (at-mm pat tf mexpr-map))
 
 ;; ---------------------------------------------------------------------
 
@@ -1633,8 +1691,17 @@ one, turn it into  TF returning an expra-map."
     (format t "alter-pm:pa:~a~%" pa)
     (format t "alter-pm:pat:~a~%" pat)
     (labels ((ptf (m)
-               (error "ptf")))
-      (at-mtm pat #'ptf pm))))
+               ;; ptf :: TF (PatKeys, v)
+               ;; ptf Nothing       = fmap (𝜆v → (pks, v)) (tf Nothing)
+               ;; ptf (Just (_, v)) = fmap (𝜆v → (pks, v)) (tf (Just v))
+               (format t "alter-pm:ptf:m: ~a~%" m)
+               (let ((r (funcall tf m)))
+                 (format t "alter-pm:ptf:r: ~a~%" r)
+                 (if (null r)
+                     r
+                     (list pks r)))))
+      (at-tm pat #'ptf pm))))
+      ;; (at-mtm pat #'ptf pm))))
 
 (defun insert-pm (pvars e v pm)
   (alter-pm (list pvars e)
@@ -1666,6 +1733,8 @@ one, turn it into  TF returning an expra-map."
 ;;     | (subst, (pks, x)) ← runMatchExpr $
 ;;                           lkMTM (A emptyDBE e) pm]
 (defun lookup-pm (expr pm)
+  (format t "lookup-pm:expr: ~a~%" expr)
+  (format t "lookup-pm:pm: ~a~%" pm)
   (run-match-expr (lambda () (lk-mtm (ma-val-new expr) pm))))
 
 ;; ---------------------------------------------------------------------
@@ -1690,7 +1759,9 @@ one, turn it into  TF returning an expra-map."
 (defmethod at-mtm (pat-key tf (mexpr-map mexpr-map))
   (format t "at-mtm:mexpr-map:pat-key:~a~%" pat-key)
   (my-pretty-print pat-key)
+  (error "at-mtm mexpr-map")
   )
+
 ;; ---------------------------------------------------------------------
 ;; m-trie-map instances for pat-map
 
@@ -1699,6 +1770,7 @@ one, turn it into  TF returning an expra-map."
 ;;   (:documentation "Alter the value at PAT-KEY in M-TRIE-MAP, by applying TF to it."))
 (defmethod at-mtm (pat-key tf (pat-map pat-map))
   (format t "at-mtm:pat-map:pat-key:~a~%" pat-key)
+  (error "at-mtm m-trie-map")
   )
 
 ;; (defgeneric lk-mtm (match-key m-trie-map)
@@ -1708,16 +1780,39 @@ one, turn it into  TF returning an expra-map."
 
 ;; ---------------------------------------------------------------------
 
+
+(defun empty-mtm ()
+  (empty-sem #'(lambda () (make-instance 'm-trie-map))))
+
+;; (defmethod empty-mtm ((se-map se-map))
+;;   (format t "empty-mtm:se-map~%")
+;;   (funcall (se-empty-contents se-map)))
+
+;; ---------------------------------------------------------------------
+
+;; Orientation.
+;;
+;; We have one or more patterns, each originating as a list of
+;; variables and an expression. We store a value in the trie-map based
+;; on this, using the alter methods, specialised as at-mtm. Do we need
+;; the specialised version?
+;;
+;; Our lookup compares an actual expression against the pattern,
+;; applying substitutions on the way to make it work.
+
+
 (defun t11 ()
-  (let ((test-em (empty-patm)))
+  (let ((test-pat (empty-patm)))
+
     (format t "1------------------------------------------~%")
-    (format t "test-em: ~a~%" test-em)
-    (my-pretty-print test-em 0)
+    (format t "test-pat: ~a~%" test-pat)
+    (my-pretty-print test-pat 0)
 
     (format t "2------------------------------------------~%")
-    (insert-pm  (list "fx") '(:lam "x" (:app (:var "fx") (:var "x"))) 'v1 test-em)
-    (format t "test-em:--------------------~%")
-    (format t "test-em: ~a~%" test-em)
-    (my-pretty-print test-em 0)
+    ;; ["fx"], \x.fx x
+    (insert-pm  (list "fx") '(:lam "x" (:app (:var "fx") (:var "x"))) 'v1 test-pat)
+    (format t "test-pat:--------------------~%")
+    (format t "test-pat: ~a~%" test-pat)
+    (my-pretty-print test-pat 0)
 
     ))

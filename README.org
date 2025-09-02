@@ -1,3 +1,144 @@
 Experimenting with tree matching using regexp algorithms.
 
+What have we got
 
+
+* TrieMap
+
+#+begin_src lisp
+(defclass trie-map ()
+  ()
+  (:documentation "Base class for TrieMap implementations."))
+
+(defgeneric empty-tm (trie-map)
+  (:documentation "Returns an empty TRIE-MAP instance for the given class."))
+
+(defgeneric lk-tm (key trie-map)
+  (:documentation "Looks up KEY in TRIE-MAP. Returns the value or NIL if not found."))
+
+(defgeneric at-tm (key f trie-map)
+  (:documentation "Alter the value at KEY in TRIE-MAP, by applying F to it."))
+
+(defgeneric foldr-tm (k z trie-map)
+  (:documentation "Fold over TRIE-MAP, with combining function K and initial value Z."))
+
+(defgeneric lift-tf-tm (f trie-map)
+  (:documentation "Take a function F which takes an TRIE-MAP as an argument and returns
+one, turn it into  TF returning an TRIE-MAP."))
+#+end_src
+
+** ListMap
+#+begin_src lisp
+(defclass list-map (trie-map)
+  ((%lm-nil :accessor lm-nil :initform nil)
+   (%lm-cons :accessor lm-cons :initform nil)
+   (%empty-contents :accessor lm-empty-contents :initarg :lm-empty-contents)
+   )
+  (:documentation "ListMap tm v"))
+#+end_src
+
+* DBEnv
+
+#+begin_src lisp
+(defclass db-env ()
+  ((%dbe-next :accessor dbe-next :initform 0 :initarg :next)
+   (%dbe-env :accessor dbe-env :initform (make-hash-table :test 'equal) :initarg :env))
+  (:documentation "DBEnv"))
+#+end_src
+
+
+* ModAlpha
+#+begin_src lisp
+(defclass mod-alpha ()
+  ((%ma-dbenv :accessor ma-dbe :initform (make-instance 'db-env) :initarg :dbenv)
+   (%ma-val :accessor ma-val :initform nil :initarg :val))
+  (:documentation "ModAlpha"))
+#+end_src
+
+** AlphaExpr
+
+#+begin_src lisp
+;; type AlphaExpr = ModAlpha Expr
+(defclass alpha-expr (mod-alpha)
+  ()
+  (:documentation "AlphaExpr"))
+#+end_src
+
+* ExprMap with binders and lambda
+
+#+begin_src lisp
+(defclass expra-map (trie-map)
+  (
+   ;; em_fvar :: Map Var v -- Free vars
+   (%ema-fvar :accessor ema-fvar :initform (make-hash-table :test 'equal))
+
+   ;; em_bvar :: Map BoundKey v -- Lambda-bound vars
+   (%ema-bvar :accessor ema-bvar :initform (make-hash-table :test 'equal))
+
+   ;; em_app :: ExprMap (ExprMap v)
+   (%ema-app :accessor ema-app :initform nil)
+
+   ;; em_lam :: ExprMap v
+   (%ema-lam :accessor ema-lam :initform nil))
+  (:documentation "ExprMap with binders and lambda"))
+#+end_src
+
+* MTrieMap
+
+#+begin_src lisp
+(defclass m-trie-map ()
+  ()
+  (:documentation "Base class for MTrieMap implementations."))
+
+(defgeneric lk-mtm (match-key m-trie-map)
+  (:documentation "Looks up MATCH-KEY in M-TRIE-MAP. Returns the value or NIL if not found."))
+
+(defgeneric at-mtm (pat-key tf m-trie-map)
+  (:documentation "Alter the value at PAT-KEY in M-TRIE-MAP, by applying TF to it."))
+#+end_src
+
+** MExprMap for matching
+
+#+begin_src lisp
+;; p8
+;; 5.3 Matching tries for AlphaExpr
+
+(defclass mexpr-map (m-trie-map)
+  (
+   ;; mm_fvar :: Map Var v -- Free vars
+   (%mm-fvar :accessor mm-fvar :initform (make-hash-table :test 'equal))
+
+   ;; mm_bvar :: Map BoundKey v -- Bound vars
+   (%mm-bvar :accessor mm-bvar :initform (make-hash-table :test 'equal))
+
+   ;; mm_pvar :: Map PatKey v -- Pattern vars
+   (%mm-pvar :accessor mm-pvar :initform (make-hash-table :test 'equal))
+
+   ;; mm_app :: MExprMap (MExprMap v)
+   (%mm-app :accessor mm-app :initform nil)
+
+   ;; em_lam :: MExprMap v
+   (%mm-lam :accessor mm-lam :initform nil))
+  (:documentation "MExprMap for matching"))
+#+end_src
+
+* PatMap
+
+#+begin_src lisp
+;; type PatMap v = MExprMap (PatKeys, v)
+
+(defclass pat-map (mexpr-map)
+  ()
+  (:documentation "MExprMap (PatKeys, v)"))
+#+end_src
+
+* PatExpr
+
+#+begin_src lisp
+;; data PatExpr    = P PatKeys AlphaExpr
+
+(defclass pat-expr ()
+  ((%pe-keys :accessor pe-keys :initform (make-instance 'db-env) :initarg :keys)
+   (%pe-val :accessor pe-val :initform nil :initarg :val))
+  (:documentation "ModAlpha"))
+#+end_src
