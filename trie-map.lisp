@@ -11,6 +11,8 @@
 ;; Working through
 ;; [[id:20250619T194826.641663][Triemaps that match]]
 ;; [cite:@jonesTriemapsThatMatch2024]
+;;
+;; Accompanying code is at https://github.com/simonpj/triemap-paper
 
 ;; type Var = String
 ;; data Expr = App Expr Expr | Lam Var Expr | Var Var
@@ -897,6 +899,64 @@ one, turn it into  TF returning an expr-map."
 
 ;; ---------------------------------------------------------------------
 
+;; 5.5 Matchable class
+;; p10
+
+;; class Eq (Pat e) => Matchable e where
+;;   type Pat e
+;;   type Subst e
+;;   match  :: Pat e -> e -> MatchM e ()
+
+;; type MatchM e v = StateT (Subst e) [] v
+(defgeneric matchable (pat e)
+  (:documentation "match function from class Matchable e"))
+
+
+;; ---------------------------------------------------------------------
+
+;; lookupSEM :: TrieMap tm => TrieKey tm -> SEMap tm v -> Maybe v
+;; lookupSEM !_  EmptySEM = Nothing
+;; lookupSEM tk (SingleSEM pk v) | tk == pk  = Just v
+;;                               | otherwise = Nothing
+;; lookupSEM tk (MultiSEM tm) = lookupTM tk tm
+
+
+;; lookupPatMSEM :: MTrieMap tm => MTrieKey tm -> MSEMap tm a
+;;                              -> MatchM (MTrieKey tm) a
+;; lookupPatMSEM k m = case m of
+;;   EmptyMSEM        -> mzero
+;;   MultiMSEM m      -> lookupPatMTM k m
+;;   SingleMSEM pat v -> match pat k >> pure v
+
+
+;; key is a PatExpr, so class pat-expr
+(defun lk-sem (key se-map)
+  (format t "lk-sem:se-map:~a~%" se-map)
+  (format t "lk-sem:key:~a~%" key)
+  (format t "lk-sem:contents:~a~%" (se-contents se-map))
+  (with-accessors ((se-contents se-contents))
+      se-map
+    (match (se-contents se-map)
+      ('se-empty
+       (format t "lk-sem:se-empty~%")
+       nil)
+
+      ((list 'se-single k2 v2)
+       (format t "lk-sem:se-single:v2:~a~%" v2)
+       (format t "lk-sem:se-single:k2:~a~%" k2)
+       (format t "lk-sem:se-single:key:~a~%" k2)
+       (format t "lk-sem:se-single:(equal key k2):~a~%" (equal key k2))
+       (if (matchable key k2)
+           ;; same keys
+           v2
+           ;; different keys
+           nil))
+
+      ((list 'se-multi tm) (lk-tm key tm))
+      (oops (error "Unexpected se-map contents: ~a" oops)))))
+
+;; ---------------------------------------------------------------------
+
 (defun foldr-sem (k z se-map)
   (format t "foldr-sem:se-map:~a~%" se-map)
   (format t "foldr-sem:se-map:contents:~a~%" (se-contents se-map))
@@ -918,6 +978,9 @@ one, turn it into  TF returning an expr-map."
 
 (defmethod at-tm (key f (se-map se-map))
   (at-sem key f se-map))
+
+(defmethod lk-tm (key (se-map se-map))
+  (lk-sem key se-map))
 
 (defmethod foldr-tm (k z (se-map se-map))
   (foldr-sem k z se-map))
@@ -1064,7 +1127,6 @@ one, turn it into  TF returning an expr-map."
 (defclass alpha-expr (mod-alpha)
   ()
   (:documentation "AlphaExpr"))
-
 
 ;; ---------------------------------------------------------------------
 
@@ -1462,9 +1524,68 @@ one, turn it into  TF returning an expra-map."
 ;;     match_one :: (PatVar, v) → MatchME v
 ;;     match_one (pv, v) = matchPatVarE pv ae >> pure v
 
-(defun lookup-pat-mm (alpha-expr mexpr-map)
-  (error "lookup-pat-mm"))
+;; From the accompanying code
+;; lookupPatMM :: AlphaExpr -> MExprMap' a -> MatchM AlphaExpr a
+;; lookupPatMM ae@(A bve e) (MM { .. })
+;;   = rigid `mplus` flexi
+;;   where
+;;     rigid = case e of
+;;       Var x     -> case lookupDBE x bve of
+;;         Just bv -> mm_bvar |> liftMaybe . lookupBoundVarOcc bv
+;;         Nothing -> mm_fvar |> liftMaybe . lookupFreeVarOcc  x
+;;       App e1 e2 -> mm_app  |>  lookupPatMTM (e1 <$ ae)
+;;                            >=> lookupPatMTM (e2 <$ ae)
+;;       Lam x e   -> mm_lam  |> lookupPatMTM (A (extendDBE x bve) e)
 
+;;     flexi = mm_pvar |> IntMap.toList |> map match_one |> msum
+;;     match_one (pv, x) = matchPatVarE pv ae >> pure x
+
+(defun lookup-pat-mm (alpha-expr mexpr-map)
+  "Look up ALPHA-EXPR in MEXPR-MAP."
+  (format t "lookup-pat-mm:alpha-expr: ~a~%" alpha-expr)
+  (format t "lookup-pat-mm:mexpr-map: ~a~%" mexpr-map)
+  (with-accessors ((mm-fvar mm-fvar)
+                   (mm-bvar mm-bvar)
+                   (mm-pvar mm-pvar)
+                   (mm-app mm-app)
+                   (mm-lam mm-lam))
+      mexpr-map
+    (format t "mm-fvar: ~a~%" mm-fvar)
+    (format t "mm-bvar: ~a~%" mm-bvar)
+    (format t "mm-app: ~a~%" mm-app)
+    (format t "mm-lam: ~a~%" mm-lam)
+
+    (match (ma-val alpha-expr)
+      ((list :var v)
+       (let ((bv (lookup-dbe v (ma-dbe alpha-expr))))
+         (if (null bv)
+             (gethash v mm-fvar)
+             (gethash bv mm-bvar))))
+
+      ((list :app e1 e2)
+      ;; App e1 e2 -> mm_app  |>  lookupPatMTM (e1 <$ ae)
+      ;;                      >=> lookupPatMTM (e2 <$ ae)
+       (let ((ae1 (ma-new (ma-dbe alpha-expr) e1))
+             (ae2 (ma-new (ma-dbe alpha-expr) e2)))
+         (if (not (null mm-app))
+             (let ((m1 (lk-tm ae1 mm-app)))
+               (format t "m1: ~a~%" m1)
+               (cond
+                 ((null m1) nil)
+                 (t (lk-tm ae2 m1))))
+             nil)))
+
+      ((list :lam v e)
+       ;; Lam x e -> mm_lam  |> lookupPatMTM (A (extendDBE x bve) e)
+       (if (not (null mm-lam))
+           (progn
+             (format t "lam:mm-lam:~a~%" mm-lam)
+             (let* ((bve2 (extend-dbe v (ma-dbe alpha-expr)))
+                    (ae (ma-new bve2 e)))
+               (lk-tm ae mm-lam)))
+           nil))
+
+      (oops (error "match failed~a ~%" oops)))))
 ;; -------------------------------------
 
 ;; matchPatVarE :: PatKey → AlphaExpr → MatchME ()
@@ -1520,6 +1641,9 @@ one, turn it into  TF returning an expra-map."
 
 ;; data ModAlpha a = A DBEnv a
 ;; data PatExpr    = P PatKeys AlphaExpr
+;; type PatKeys = Map PatVar PatKey
+;; type PatVar = Var
+;; type PatKey = DBNum
 
 (defclass pat-expr ()
   ((%pe-keys :accessor pe-keys :initform (make-instance 'db-env) :initarg :keys)
@@ -1539,6 +1663,12 @@ one, turn it into  TF returning an expra-map."
 
 (defmethod pe-val-new (val)
   (make-instance 'pat-expr :val val))
+
+(defun make-pat-expr (pvars e)
+  (let* ((pks (canon-pat-keys pvars e))
+         (pa (ma-val-new e))
+         (pat (pe-new pks pa)))
+    pat))
 
 ;; ---------------------------------------------------------------------
 ;; The auxiliary function canonPatKeys takes the client-side pattern
@@ -1601,6 +1731,104 @@ one, turn it into  TF returning an expra-map."
 
 ;; ---------------------------------------------------------------------
 
+;; data Occ
+;;   = Free  !FreeVar
+;;   | Bound !BoundKey
+;;   | Pat   !PatKey
+;;   deriving Eq
+
+;; canonOcc :: PatKeys -> BoundVarEnv -> Var -> Occ
+;; canonOcc pks be v
+;;   | Just bv <- lookupDBE v be     = Bound bv
+;;   | Just pv <- lookupPatKey v pks = Pat pv
+;;   | otherwise                     = Free v
+;; {-# INLINE canonOcc #-}
+
+(defun canon-occ (pat-keys bound-var-env var)
+  (let ((bv (lookup-dbe var bound-var-env)))
+    (if bv
+        (list :bound bv)
+        (let ((pv (lookup-dbe var pat-keys)))
+          (if pv
+              (list :pat pv)
+              (list :free var))))))
+
+;; ---------------------------------------------------------------------
+
+;; matchPatVarE :: PatKey -> AlphaExpr -> MatchM AlphaExpr ()
+;; matchPatVarE pv (A bve e) = refineMatch $ \ms ->
+;;   case hasMatch pv ms of
+;;     Nothing
+;;       | noCaptured bve e    -> Just (addMatch pv e ms)
+;;       | otherwise           -> Nothing
+;;     Just sol
+;;       | eqClosedExpr e sol
+;;       , noCaptured bve e    -> Just ms
+;;       | otherwise           -> Nothing
+
+(defun match-pat-var-e (pat-key alpha-expr)
+  (error "match-pat-var-e"))
+
+;; matchE :: PatExpr -> AlphaExpr -> MatchM AlphaExpr ()
+;; matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) =
+;;   -- traceWith (\res -> show ms ++ "  ->  matchE " ++ show pat ++ "   " ++ show tar ++ "  -> " ++ show res) $
+;;   case (e_pat, e_tar) of
+;;   (Var v, _) -> case canonOcc pks bve_pat v of
+;;     Pat pv -> matchPatVarE pv tar
+;;     occ | Var v2 <- e_tar
+;;         , occ == canonOcc emptyPatKeys bve_tar v2
+;;         -> return ()
+;;         | otherwise -> mzero
+;;   (App f1 a1, App f2 a2) -> match (f1 <$$ pat) (f2 <$ tar) >>
+;;                             match (a1 <$$ pat) (a2 <$ tar)
+;;   (Lam b1 e1, Lam b2 e2) -> match (P pks (A (extendDBE b1 bve_pat) e1))
+;;                                   (A (extendDBE b2 bve_tar) e2)
+;;   (_, _) -> mzero
+
+;; (defmethod matchable ((pat pat-expr) (tar mod-alpha))
+(defmethod matchable ((pat pat-expr) (tar mod-alpha))
+  (format t "matchable:pat:~a~%" pat)
+  (my-pretty-print pat)
+  (format t "matchable:tar:~a~%" tar)
+  (my-pretty-print tar)
+  (format t "matchable:match:~a~%" (list (ma-val pat) (ma-val tar)))
+  (let ((pks (pe-keys pat))
+        (bve_pat (ma-dbe (pe-val pat))))
+    (match (list (ma-val pat) (ma-val tar))
+      ((list (list :var v) _)
+       (format t "matchable:var:~a~%" v)
+       (format t "matchable:canon-occ:~a~%" (canon-occ pks bve_pat v))
+       (match (canon-occ pks bve_pat v)
+         (oops
+          (error "matchable:canon-occ gave:~a~%" oops))
+         )
+       ;; (error "matchable var")
+       nil)
+
+         ((list (list :app f1 a1) (list :app f2 a2))
+          (format t "matchable:app~%")
+          ;; Match f1 with f2
+          (let ((mf1 (ma-new (ma-dbe pat) f1))
+                (mf2 (ma-new (ma-dbe tar) f2)))
+            (matchable mf1 mf2))
+          ;; Match a1 with a2
+          (let ((ma1 (ma-new (ma-dbe pat) f1))
+                (ma2 (ma-new (ma-dbe tar) f2)))
+            (matchable ma1 ma2))
+          nil)
+
+         ((list (list :lam b1 e1) (list :lam b2 e2))
+          (format t "matchable:lam~%")
+          (error "matchable lam")
+          nil)
+
+         (no
+          (format t "matchable:no match:~a~%" no)
+          nil)
+         )))
+
+;; ---------------------------------------------------------------------
+
 
 (defmethod at-mm (pat-key tf (mexpr-map mexpr-map))
   "Alter MEXPR-MAP at PAT-KEY using update function TF."
@@ -1653,11 +1881,6 @@ one, turn it into  TF returning an expra-map."
     (format t "at-mm: exiting done~%")
     mexpr-map))
 
-(defmethod at-tm (pat tf (mexpr-map mexpr-map))
-  (format t "at-tm:mexpr-map:map ~a~%" mexpr-map)
-  (my-pretty-print mexpr-map)
-  (at-mm pat tf mexpr-map))
-
 ;; ---------------------------------------------------------------------
 
 ;; Then we can simply call the internal atMTM function,
@@ -1703,12 +1926,39 @@ one, turn it into  TF returning an expra-map."
       (at-tm pat #'ptf pm))))
       ;; (at-mtm pat #'ptf pm))))
 
+;; ---------------------------------------------------------------------
+
+;; From accompanying code https://github.com/simonpj/triemap-paper
+;; insertPM :: ([PatVar], Expr) -> v -> PatMap v -> PatMap v
+;; insertPM (pvars, e) x pm = alterPatMTM pat (\_ -> Just (pks, x)) pm
+;;   where
+;;     pks = canonPatKeys (Set.fromList pvars) e
+;;     pat = P pks (deBruijnize e)
+
+;; deBruijnize :: a -> ModAlpha a
+;; deBruijnize = A emptyDBE
+
+
 (defun insert-pm (pvars e v pm)
-  (alter-pm (list pvars e)
-            (lambda (x)
-              (declare (ignore x))
-              v)
-            pm))
+  (format t "insert-pm:pm:~a~%" pm)
+  (let* ((pks (canon-pat-keys pvars e))
+         (pa (ma-val-new e))
+         (pat (pe-new pks pa)))
+    (format t "insert-pm:pks:~a~%" pks)
+    (format t "insert-pm:pa:~a~%" pa)
+    (format t "insert-pm:pat:~a~%" pat)
+    (labels ((ptf (m)
+               (format t "insert-pm:ptf:m: ~a~%" m)
+               (list pks v)))
+      (at-tm pat #'ptf pm))))
+      ;; (at-mtm pat #'ptf pm))))
+
+;; (defun insert-pm (pvars e v pm)
+;;   (alter-pm (list pvars e)
+;;             (lambda (x)
+;;               (declare (ignore x))
+;;               v)
+;;             pm))
 
 ;; ---------------------------------------------------------------------
 
@@ -1723,7 +1973,8 @@ one, turn it into  TF returning an expra-map."
   ;; pattern variables, and yielding a possibly-empty list of values (of
   ;; type v), each paired with an extended SubstE
   (let ((subst-e (make-hash-table :test 'equal)))
-    (funcall me subst-e)))
+    ;; (funcall me subst-e)))
+    (funcall me)))
 
 ;; ---------------------------------------------------------------------
 
@@ -1736,6 +1987,19 @@ one, turn it into  TF returning an expra-map."
   (format t "lookup-pm:expr: ~a~%" expr)
   (format t "lookup-pm:pm: ~a~%" pm)
   (run-match-expr (lambda () (lk-mtm (ma-val-new expr) pm))))
+  ;; (run-match-expr (lambda () (lk-tm (ma-val-new expr) pm))))
+
+;; ---------------------------------------------------------------------
+
+;; Companion code
+;; matchPM :: Expr -> PatMap v -> [(PatSubst, v)]
+;; matchPM e pm
+;;   = [ (Map.toList (subst `composeMaps` pks), x)
+;;     | (subst, (pks, x)) <- runMatchExpr $ lookupPatMTM (deBruijnize e) pm ]
+(defun match-pm (e pm)
+  (format t "match-pm:e: ~a~%" e)
+  (format t "match-pm:pm: ~a~%" pm)
+  (run-match-expr (lambda () (lk-tm (ma-val-new e) pm))))
 
 ;; ---------------------------------------------------------------------
 
@@ -1790,6 +2054,21 @@ one, turn it into  TF returning an expra-map."
 
 ;; ---------------------------------------------------------------------
 
+(defmethod at-tm (pat tf (mexpr-map mexpr-map))
+  (format t "at-tm:mexpr-map:map ~a~%" mexpr-map)
+  (my-pretty-print mexpr-map)
+  (at-mm pat tf mexpr-map))
+
+
+(defmethod lk-tm (key (mexpr-map mexpr-map))
+  (format t "lk-tm:mexpr-map:map ~a~%" mexpr-map)
+  (my-pretty-print mexpr-map)
+  ;; (lookup-pm key mexpr-map)
+  (lookup-pat-mm key mexpr-map)
+  )
+
+;; ---------------------------------------------------------------------
+
 ;; Orientation.
 ;;
 ;; We have one or more patterns, each originating as a list of
@@ -1814,5 +2093,15 @@ one, turn it into  TF returning an expra-map."
     (format t "test-pat:--------------------~%")
     (format t "test-pat: ~a~%" test-pat)
     (my-pretty-print test-pat 0)
+
+    (format t "3------------------------------------------~%")
+    ;; look up an expression, lets do the original directly
+    ;; \x.fx x
+
+    (format t "lookup:~a~%"
+            (match-pm '(:lam "x" (:app (:var "fx") (:var "x"))) test-pat))
+
+    ;; let m = mkPatSet [(["a", "b", "c"], read "F (a b) c"), (["ab"], read "F ab C")]
+    ;;     matches = matchPM (read "F (A B) C") m
 
     ))
