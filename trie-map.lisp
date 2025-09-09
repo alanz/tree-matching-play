@@ -93,7 +93,7 @@
 (defvar test-expr '(:app (:var "a") (:var "b")))
 (defvar test-em (empty-em))
 
-(defmethod lk-em (expr (expr-map expr-map))
+(defmethod lk-em (expr (expr-map expr-map) &optional (ms nil))
   "Look up EXPR in EXPR-MAP."
   (format t "expr: ~a~%" expr)
   (format t "expr-map: ~a~%" expr-map)
@@ -107,19 +107,19 @@
         ((list :var v) (gethash v em-var))
         ((list :app e1 e2)
          (if (not (null em-app))
-             (let ((m1 (lk-em e1 em-app)))
+             (let ((m1 (lk-em e1 em-app ms)))
                (format t "m1: ~a~%" m1)
                (cond
                  ((null m1) nil)
-                 (t (lk-em e2 m1))))
+                 (t (lk-em e2 m1 ms))))
              nil))
         ((list :app-v e1 e2)
          (if (not (null em-app-v))
-             (let ((m1 (lk-em e1 em-app-v)))
+             (let ((m1 (lk-em e1 em-app-v ms)))
                (format t "m1: ~a~%" m1)
                (cond
                  ((null m1) nil)
-                 (t (lk-em e2 m1))))
+                 (t (lk-em e2 m1 ms))))
              nil))
         (oops (error "match failed:~A ~%" oops)))))
 
@@ -480,7 +480,7 @@ This is such that foldr f z == foldr f z . elems."
 (defgeneric empty-tm (trie-map)
   (:documentation "Returns an empty TRIE-MAP instance for the given class."))
 
-(defgeneric lk-tm (key trie-map)
+(defgeneric lk-tm (key trie-map &optional ms)
   (:documentation "Looks up KEY in TRIE-MAP. Returns the value or NIL if not found."))
 
 (defgeneric at-tm (key f trie-map)
@@ -523,8 +523,8 @@ one, turn it into  TF returning an TRIE-MAP."))
 (defmethod empty-tm ((expr-map expr-map))
   (empty-em))
 
-(defmethod lk-tm (key (expr-map expr-map))
-  (lk-em key expr-map))
+(defmethod lk-tm (key (expr-map expr-map) &optional (ms nil))
+  (lk-em key expr-map ms))
 
 (defmethod at-tm (key f (expr-map expr-map))
   (at-em key f expr-map))
@@ -590,7 +590,7 @@ one, turn it into  TF returning an TRIE-MAP."))
 ;; lkLM [ ] = lm_nil
 ;; lkLM (k : ks) = lm_cons >>> lkTM k >=> lkLM ks
 
-(defmethod lk-lm (key list-map)
+(defmethod lk-lm (key list-map &optional (ms nil))
   (with-accessors ((lm-nil lm-nil)
                    (lm-cons lm-cons))
       list-map
@@ -600,7 +600,7 @@ one, turn it into  TF returning an TRIE-MAP."))
        (let ((lk (lk-tm key k)))
          (if (not (null lk))
              lk
-             (lk-lm key ks)))))))
+             (lk-lm key ks ms)))))))
 
   ;; infixr 1 >=>
   ;; -- Kleisli composition
@@ -737,8 +737,8 @@ one, turn it into  TF returning an expr-map."
 (defmethod empty-tm ((list-map list-map))
   (funcall (lm-empty-contents list-map)))
 
-(defmethod lk-tm (key (list-map list-map))
-  (lk-lm key list-map))
+(defmethod lk-tm (key (list-map list-map) &optional (ms nil))
+  (lk-lm key list-map ms))
 
 (defmethod at-tm (key f (list-map list-map))
   (at-lm key f list-map))
@@ -777,8 +777,6 @@ one, turn it into  TF returning an expr-map."
 ;; data SEMap tm v = EmptySEM
 ;;                 | SingleSEM (Key tm) v
 ;;                 | MultiSEM (tm v)
-
-
 
 (defmethod my-pretty-print ((se-map se-map) &optional (depth 0) (stream t))
   (format stream "~v,tSE-MAP:~a~%" depth se-map)
@@ -931,7 +929,7 @@ one, turn it into  TF returning an expr-map."
 
 
 ;; key is a PatExpr, so class pat-expr (mod-alpha)
-(defun lk-sem (key se-map)
+(defun lk-sem (key se-map &optional (ms nil))
   (format t "lk-sem:se-map:~a~%" se-map)
   (format t "lk-sem:key:~a~%" key)
   (format t "lk-sem:contents:~a~%" (se-contents se-map))
@@ -947,7 +945,7 @@ one, turn it into  TF returning an expr-map."
        (format t "lk-sem:se-single:k2:~a~%" k2)
        (format t "lk-sem:se-single:key:~a~%" k2)
        (format t "lk-sem:se-single:(equal key k2):~a~%" (equal key k2))
-       (if (matchable k2 key)
+       (if (matchable k2 key ms)
            ;; same keys
            v2
            ;; different keys
@@ -980,8 +978,8 @@ one, turn it into  TF returning an expr-map."
 (defmethod at-tm (key f (se-map se-map))
   (at-sem key f se-map))
 
-(defmethod lk-tm (key (se-map se-map))
-  (lk-sem key se-map))
+(defmethod lk-tm (key (se-map se-map) &optional (ms nil))
+  (lk-sem key se-map ms))
 
 (defmethod foldr-tm (k z (se-map se-map))
   (foldr-sem k z se-map))
@@ -1191,7 +1189,7 @@ one, turn it into  TF returning an expr-map."
 ;; type AlphaExpr = ModAlpha Expr
 
 ;; lkEM :: AlphaExpr → ExprMap' v → Maybe v
-(defmethod lk-ema (alpha-expr (expra-map expra-map))
+(defmethod lk-ema (alpha-expr (expra-map expra-map) &optional (ms nil))
   "Look up EXPR in EXPRA-MAP."
   (format t "alpha-expr: ~a~%" alpha-expr)
   (format t "expra-map: ~a~%" expra-map)
@@ -1335,8 +1333,8 @@ one, turn it into  TF returning an expra-map."
 ;; (defmethod empty-tm ((expra-map expr-map))
 ;;   (empty-ema))
 
-(defmethod lk-tm (key (expra-map expra-map))
-  (lk-ema key expra-map))
+(defmethod lk-tm (key (expra-map expra-map) &optional (ms nil))
+  (lk-ema key expra-map ms))
 
 (defmethod at-tm (key f (expra-map expra-map))
   (at-ema key f expra-map))
@@ -1541,7 +1539,7 @@ one, turn it into  TF returning an expra-map."
 ;;     flexi = mm_pvar |> IntMap.toList |> map match_one |> msum
 ;;     match_one (pv, x) = matchPatVarE pv ae >> pure x
 
-(defun lookup-pat-mm (alpha-expr mexpr-map)
+(defun lookup-pat-mm (alpha-expr mexpr-map ms)
   "Look up ALPHA-EXPR in MEXPR-MAP."
   (format t "lookup-pat-mm:alpha-expr: ~a~%" alpha-expr)
   (format t "lookup-pat-mm:mexpr-map: ~a~%" mexpr-map)
@@ -1583,7 +1581,7 @@ one, turn it into  TF returning an expra-map."
              (format t "lam:mm-lam:~a~%" mm-lam)
              (let* ((bve2 (extend-dbe x (ma-dbe alpha-expr)))
                     (ae (ma-new bve2 e)))
-               (lk-tm ae mm-lam)))
+               (lk-tm ae mm-lam ms)))
            nil))
 
       (oops (error "match failed~a ~%" oops)))))
@@ -1764,9 +1762,9 @@ one, turn it into  TF returning an expra-map."
 ;; {-# INLINE canonOcc #-}
 
 (defun canon-occ (pat-keys bound-var-env var)
-  (format t "canon-occ:pat-keys:~a~%" pat-keys)
-  (format t "canon-occ:bound-var-env:~a~%" bound-var-env)
-  (format t "canon-occ:var:~a~%" var)
+  ;; (format t "canon-occ:pat-keys:~a~%" pat-keys)
+  ;; (format t "canon-occ:bound-var-env:~a~%" bound-var-env)
+  ;; (format t "canon-occ:var:~a~%" var)
 
   (let ((bv (lookup-dbe var bound-var-env)))
     (format t "canon-occ:bv:~a~%" bv)
@@ -1780,6 +1778,35 @@ one, turn it into  TF returning an expra-map."
 
 ;; ---------------------------------------------------------------------
 
+;; anyFreeVarsOfExpr :: (Var -> Bool) -> Expr -> Bool
+;; -- True if 'p' returns True of any free variable
+;; -- of the expr; False otherwise
+;; anyFreeVarsOfExpr p e
+;;   = go Set.empty e
+;;   where
+;;     go bvs (Var v) | v `Set.member` bvs = False
+;;                    | otherwise          = p v
+;;     go bvs (App e1 e2) = go bvs e1 || go bvs e2
+;;     go bvs (Lam v e)   = go (Set.insert v bvs) e
+
+(defun any-free-vars-of-expr (p expr)
+  (labels ((doit (bvs e)
+             (match e
+               ((list :var v)
+                (if (member v bvs)
+                    nil
+                    (funcall p v)))
+
+               ((list :app e1 e2)
+                (or (doit bvs e1)
+                    (doit bvs e2)))
+
+               ((list :lam v e)
+                (doit (cons v bvs) e)))))
+    (doit nil expr)))
+
+;; ---------------------------------------------------------------------
+
 ;; noCaptured :: DeBruijnEnv -> Expr -> Bool
 ;; -- True iff no free var of the type is bound by DeBruijnEnv
 ;; noCaptured dbe e
@@ -1787,7 +1814,8 @@ one, turn it into  TF returning an expra-map."
 ;;   where
 ;;     captured v = isJust (lookupDBE v dbe)
 (defun no-captured (dbe e)
-  (error "no-captured"))
+  (labels ((captured (v) (lookup-dbe v dbe)))
+    (not (any-free-vars-of-expr #'captured e))))
 
 ;; ---------------------------------------------------------------------
 
@@ -1830,6 +1858,8 @@ one, turn it into  TF returning an expra-map."
 (defun match-pat-var-e (pat-key alpha-expr ms)
   (let ((hm (has-match pat-key ms))
         (nc (no-captured (ma-dbe alpha-expr) (ma-val alpha-expr))))
+    (format t "match-pat-var-e:hm:~a~%" hm)
+    (format t "match-pat-var-e:nc:~a~%" nc)
     (if hm
         (if (and nc (eq-closed-expr e hm))
             ms
@@ -1862,7 +1892,7 @@ one, turn it into  TF returning an expra-map."
   (my-pretty-print pat)
   (format t "matchable:tar:~a~%" tar)
   (my-pretty-print tar)
-  ;; (format t "matchable:match:~a~%" (list (ma-val pat) (ma-val tar)))
+  (format t "matchable:ms:~a~%" ms)
   (let ((pks (pe-keys pat))
         (bve_pat (ma-dbe (pe-val pat))))
     (format t "matchable:pks:~a~%" pks)
@@ -1873,7 +1903,7 @@ one, turn it into  TF returning an expra-map."
        (format t "matchable:canon-occ:~a~%" (canon-occ pks bve_pat v))
        (match (canon-occ pks bve_pat v)
          ((list :pat pv)
-          (format t "matchable:pat:~a~%" pv)
+          (format t "matchable:pat1:~a~%" pv)
           (match-pat-var-e pv tar ms))
 
          ;; ((list :bound pv) nil)
@@ -2072,8 +2102,7 @@ one, turn it into  TF returning an expra-map."
   ;; pattern variables, and yielding a possibly-empty list of values (of
   ;; type v), each paired with an extended SubstE
   (let ((subst-e (make-hash-table :test 'equal)))
-    ;; (funcall me subst-e)))
-    (funcall me)))
+    (funcall me subst-e)))
 
 ;; ---------------------------------------------------------------------
 
@@ -2098,7 +2127,7 @@ one, turn it into  TF returning an expra-map."
 (defun match-pm (e pm)
   (format t "match-pm:e: ~a~%" e)
   (format t "match-pm:pm: ~a~%" pm)
-  (run-match-expr (lambda () (lk-tm (ma-val-new e) pm))))
+  (run-match-expr (lambda (ms) (lk-tm (ma-val-new e) pm ms))))
 
 ;; ---------------------------------------------------------------------
 
@@ -2159,11 +2188,11 @@ one, turn it into  TF returning an expra-map."
   (at-mm pat tf mexpr-map))
 
 
-(defmethod lk-tm (key (mexpr-map mexpr-map))
+(defmethod lk-tm (key (mexpr-map mexpr-map) &optional (ms nil))
   (format t "lk-tm:mexpr-map:map ~a~%" mexpr-map)
   (my-pretty-print mexpr-map)
   ;; (lookup-pm key mexpr-map)
-  (lookup-pat-mm key mexpr-map)
+  (lookup-pat-mm key mexpr-map ms)
   )
 
 ;; ---------------------------------------------------------------------
