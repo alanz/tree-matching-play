@@ -910,6 +910,45 @@ one, turn it into  TF returning an expr-map."
   (:documentation "match function from class Matchable e.
  We explicitly pass in the (Subst e)"))
 
+;; ---------------------------------------------------------------------
+
+;; type MatchM e v = StateT (Subst e) [] v
+;;
+
+;; The MatchM monad data structure. It has the SubstE value, and the
+;; result being built up.
+
+(defclass match-m ()
+  ((%mam-subst :accessor mam-subst :initform (make-hash-table :test 'equal) :initarg :subst)
+   (%mam-list :accessor mam-list :initform nil :initarg :list))
+  (:documentation "MatchM e v"))
+
+(defmethod my-pretty-print ((match-m match-m) &optional (depth 0) (stream t))
+  (format stream "~v,tMATCH-M:~a~%" depth match-m)
+  (let ((depth1 (+ 2 depth)))
+    (format stream "~v,tMATCH-M-mam-subst:~%" depth1)
+    (maphash (lambda (k v)
+               (format stream "~v,t  (~S .~%" depth1 k)
+               (my-pretty-print v (+ 4 depth1) stream)
+               (format stream "~v,t  )~%" depth1))
+             (mam-subst match-m))
+    (format stream "~v,tMATCH-M-mam-list:~%" depth1)
+    (format stream "~v,t  ~a~%" (+ 2 depth1) (mam-list match-m))))
+
+(defun empty-match-m ()
+  (make-instance 'match-m))
+
+(defmethod mzero ((match-m match-m))
+  "Aborts the current calculation, clearing the output."
+  (format t "mzero~%")
+  (setf (mam-list match-m) nil)
+  nil)
+
+(defmethod pure (v (match-m match-m))
+  "Monadic return. Adds V to the result in MATCH-M."
+  (format t "pure:v: ~a~%" v)
+  (setf (mam-list match-m) (cons v (mam-list match-m)))
+  v)
 
 ;; ---------------------------------------------------------------------
 
@@ -929,7 +968,7 @@ one, turn it into  TF returning an expr-map."
 
 
 ;; key is a PatExpr, so class pat-expr (mod-alpha)
-(defun lk-sem (key se-map &optional (ms nil))
+(defun lk-sem (key se-map &optional ms)
   (format t "lk-sem:ms:~a~%" ms)
   (format t "lk-sem:se-map:~a~%" se-map)
   (format t "lk-sem:key:~a~%" key)
@@ -939,7 +978,7 @@ one, turn it into  TF returning an expr-map."
     (match (se-contents se-map)
       ('se-empty
        (format t "lk-sem:se-empty~%")
-       nil)
+       (mzero ms))
 
       ((list 'se-single k v)
        (format t "lk-sem:se-single:v:~a~%" v)
@@ -947,9 +986,13 @@ one, turn it into  TF returning an expr-map."
        (format t "lk-sem:se-single:k:~a~%" k)
        (format t "lk-sem:se-single:key:~a~%" k)
        (format t "lk-sem:se-single:(equal key k):~a~%" (equal key k))
-       (format t "lk-sem:se-single:(matchable k key ms):~a~%" (matchable k key ms))
+       ;; (format t "lk-sem:se-single:(matchable k key ms):~a~%" (matchable k key ms))
+
+       ;; SingleMSEM pat v -> match pat k >> pure v
+       ;; The call to `match pat k` updates the state only (subst).
+       ;; If it succeeds, we return v into the list result.
        (if (matchable k key ms)
-           v
+           (pure v ms)
            nil))
 
       ((list 'se-multi tm) (lk-tm key tm))
@@ -1889,12 +1932,14 @@ one, turn it into  TF returning an expra-map."
 
 ;; addMatch :: PatKey -> Expr -> SubstE -> SubstE
 ;; addMatch pv e ms = IntMap.insert pv e ms
-(defun add-match (pat-key expr subst-e)
-  (format t "add-match:pat-key: ~a~%" pat-key)
-  (format t "add-match:expr: ~a~%" expr)
-  (setf (gethash pat-key subst-e) expr)
-  (my-pretty-print subst-e)
-  subst-e)
+(defun add-match (pat-key expr ms)
+  (with-accessors ((subst-e mam-subst))
+      ms
+    (format t "add-match:pat-key: ~a~%" pat-key)
+    (format t "add-match:expr: ~a~%" expr)
+    (setf (gethash pat-key subst-e) expr)
+    (my-pretty-print subst-e)
+    ms))
 
 ;; ---------------------------------------------------------------------
 
@@ -1910,19 +1955,21 @@ one, turn it into  TF returning an expra-map."
 ;;       | otherwise           -> Nothing
 
 (defun match-pat-var-e (pat-key alpha-expr ms)
-  (let ((hm (has-match pat-key ms))
+  "Update the subst part of MS according to the match between PAT-KEY and ALPHA-EXPR.
+ Return T or NIL depending on whether the match succeeded or not."
+  (let ((hm (has-match pat-key (mam-subst ms)))
         (nc (no-captured (ma-dbe alpha-expr) (ma-val alpha-expr))))
     (format t "match-pat-var-e:hm:~a~%" hm)
     (format t "match-pat-var-e:nc:~a~%" nc)
     (if hm
         (if (and nc (eq-closed-expr (ma-val alpha-expr) hm))
-            ms
-            nil ;; Should the hashmap be cleared? No. refinematch either adds the result, or does not
-            )
+            t
+            nil)
         (if nc
-            (add-match pat-key (ma-val alpha-expr) ms)
-            nil ;; Should the hashmap be cleared?
-            ))))
+            (progn
+              (add-match pat-key (ma-val alpha-expr) ms)
+              t)
+            nil))))
 
 ;; matchE :: PatExpr -> AlphaExpr -> MatchM AlphaExpr ()
 ;; matchE pat@(P pks (A bve_pat e_pat)) tar@(A bve_tar e_tar) =
@@ -1940,8 +1987,7 @@ one, turn it into  TF returning an expra-map."
 ;;                                   (A (extendDBE b2 bve_tar) e2)
 ;;   (_, _) -> mzero
 
-(defmethod matchable ((pat pat-expr) (tar mod-alpha) ms)
-;; (defmethod matchable ((pat mod-alpha) (tar mod-alpha))
+(defmethod matchable ((pat pat-expr) (tar mod-alpha) (ms match-m))
   (format t "matchable:pat:~a~%" pat)
   (my-pretty-print pat)
   (format t "matchable:tar:~a~%" tar)
@@ -1980,10 +2026,9 @@ one, turn it into  TF returning an expra-map."
                    nil)
 
              ))
-            (_ nil)))
+            (_ (mzero ms))))
 
-         )
-       nil)
+         ))
 
       ((list (list :app f1 a1) (list :app f2 a2))
        (format t "matchable:app:~%")
@@ -2007,7 +2052,7 @@ one, turn it into  TF returning an expra-map."
 
       (no
        (format t "matchable:no match:~a~%" no)
-       nil)
+       (mzero ms))
       )))
 
 ;; ---------------------------------------------------------------------
@@ -2132,7 +2177,6 @@ one, turn it into  TF returning an expra-map."
 ;; deBruijnize :: a -> ModAlpha a
 ;; deBruijnize = A emptyDBE
 
-
 (defun insert-pm (pvars e v pm)
   (format t "insert-pm:pm:~a~%" pm)
   (let* ((pks (canon-pat-keys pvars e))
@@ -2154,6 +2198,16 @@ one, turn it into  TF returning an expra-map."
 ;;               v)
 ;;             pm))
 
+
+;; ---------------------------------------------------------------------
+
+;; mkPatMap :: [([Var], Expr, v)] -> PatMap v
+;; mkPatMap = foldr (\(pvs, e, a) -> insertPM (pvs, e) a) emptyPatMap
+
+(defun mk-pat-map-1 (pvs e pm)
+  (insert-pm pvs e e pm))
+
+
 ;; ---------------------------------------------------------------------
 
 ;; type SubstE = Map PatKey Expr
@@ -2167,16 +2221,14 @@ one, turn it into  TF returning an expra-map."
 ;; runMatchExpr :: MatchM AlphaExpr v -> [(SubstE, v)]
 ;; runMatchExpr f = swap <$> runStateT f emptyPVM
 
-;; TODO: 
-(defun empty-pvm ()
-  (make-hash-table :test 'equal))
-
 (defun run-match-expr (me)
   ;; MatchME v is a function taking a substitution (of type SubstE) for
   ;; pattern variables, and yielding a possibly-empty list of values (of
   ;; type v), each paired with an extended SubstE
-  (let ((subst-e (empty-pvm)))
+  (let ((subst-e (empty-match-m)))
     (let ((r (funcall me subst-e)))
+      (format t "run-match-expr:subst-e:~a~%" subst-e)
+      (my-pretty-print subst-e)
       (list r subst-e))))
 
 ;; ---------------------------------------------------------------------
@@ -2293,7 +2345,7 @@ one, turn it into  TF returning an expra-map."
 
     (format t "2------------------------------------------~%")
     ;; ["fx"], \x.fx x
-    (insert-pm  (list "fx") '(:lam "x" (:app (:var "fx") (:var "x"))) 'v1 test-pat)
+    (mk-pat-map-1 (list "fx") '(:lam "x" (:app (:var "fx") (:var "x"))) test-pat)
     (format t "test-pat:--------------------~%")
     (format t "test-pat: ~a~%" test-pat)
     (my-pretty-print test-pat 0)
